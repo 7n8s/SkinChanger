@@ -3737,8 +3737,8 @@ local function drawNotice(x,y,w,h)
  local cx=x+w/2
  rect(x+34,y+30,w-68,h-60,C.panel,2,12); border(x+34,y+30,w-68,h-60,C.line,3,12)
  rect(cx-25,y+76,50,4,C.accent,4,2)
- text("WELCOME TO NEXUS",cx,y+105,C.text,22,6,true,true)
- text("RIVALS  /  COSMETIC CONTROL",cx,y+140,C.accent,10,6,true,true)
+ text("RIVALS.",cx,y+105,C.text,22,6,true,true)
+ text("COSMETIC CONTROL",cx,y+140,C.accent,10,6,true,true)
  local cy=y+190
  for _,row in ipairs(noticeLines) do if row~="" then text(row,x+80,cy,C.dim,14,6) end; cy=cy+(row=="" and 10 or 23) end
  local ready=left<=0
@@ -3769,9 +3769,9 @@ local function drawWindow(slide)
  rect(x-2,y-2,w+4,h+4,RGB(4,7,12),0,13)
  rect(x,y,w,h,C.bg,1,12); border(x,y,w,h,C.line,2,12)
  rect(x,y,w,58,C.bar,2,12); line(x+1,y+58,x+w-1,y+58,C.line,3,1)
- rect(x+18,y+15,28,28,C.accent,4,8); text("N",x+32,y+19,C.onAccent,17,6,true,true)
- text("NEXUS",x+57,y+10,C.text,16,6,true)
- text("RIVALS  /  COSMETIC CONTROL",x+58,y+33,C.faint,9,6,true)
+ rect(x+18,y+15,28,28,C.accent,4,8); text("R",x+32,y+19,C.onAccent,17,6,true,true)
+ text("Rivals.",x+57,y+10,C.text,16,6,true)
+ text("COSMETIC CONTROL",x+58,y+33,C.faint,9,6,true)
  local busy=shared.busy or upstreamBusy()
  local status=busy and "PROCESSING" or (state.dirty and "UNSAVED" or "SYSTEM READY")
  local statusColor=busy and C.accent or (state.dirty and RGB(255,190,90) or C.good)
@@ -3781,23 +3781,21 @@ local function drawWindow(slide)
 
  local sx,sy,sw=x+14,y+72,174
  local sh=h-130
- rect(sx,sy,sw,sh,C.panel,3,10); text("NAVIGATION",sx+15,sy+16,C.faint,9,6,true)
+ rect(sx,sy,sw,sh,C.panel,3,14); border(sx,sy,sw,sh,C.line,4,14)
+ text("BROWSE",sx+15,sy+16,C.faint,9,6,true)
  for i,name in ipairs(TABS) do
-  local ry=sy+42+(i-1)*54
+  local ry=sy+40+(i-1)*46
   local selected=state.tab==name
   if selected then
-   rect(sx+8,ry,sw-16,46,C.card,4,8); rect(sx+8,ry+9,3,28,C.accent,6,2)
-   rect(sx+16,ry+5,30,30,C.accentDim,5,7)
-  elseif over(sx+8,ry,sw-16,46) then rect(sx+8,ry,sw-16,46,C.cardHover,4,8) end
-  text(string.format("%02d",i),sx+31,ry+13,selected and C.accent or C.faint,10,7,true,true)
-  text(name:upper(),sx+55,ry+8,selected and C.text or C.dim,11,7,selected)
-  text(META[name][2],sx+55,ry+25,C.faint,7,7,true)
-  if clicked(sx+8,ry,sw-16,46) then state.tab=name; focus=nil end
+   rect(sx+8,ry,sw-16,38,C.card,4,9); rect(sx+8,ry+8,3,22,C.accent,6,2)
+  elseif over(sx+8,ry,sw-16,38) then rect(sx+8,ry,sw-16,38,C.cardHover,4,9) end
+  text(name,sx+22,ry+10,selected and C.text or C.dim,13,7,selected)
+  if clicked(sx+8,ry,sw-16,38) then state.tab=name; focus=nil end
  end
  local fy=sy+sh-64
  line(sx+12,fy-9,sx+sw-12,fy-9,C.line,4,1)
  circle(sx+20,fy+9,3,C.good,6,true)
- text("MATCHA SESSION",sx+31,fy+1,C.dim,9,6,true)
+ text("ACTIVE SESSION",sx+31,fy+1,C.dim,9,6,true)
  text(keyName(state.toggleKey).."  /  TOGGLE",sx+15,fy+23,C.faint,8,6)
 
  local cx,cw=sx+sw+16,w-sw-46
