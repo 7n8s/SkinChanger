@@ -16,7 +16,7 @@ local SETTINGS = "rivals_gui_settings.txt"
 local BACKUP = "rivals_config.backup.lua"
 local CACHE = "rivals_gui_cache"
 local SCRIPT_FILES = {"RivalsSkinSwapper.lua", "workspace/RivalsSkinSwapper.lua", "scripts/RivalsSkinSwapper.lua"}
-local SCRIPT_URL = "https://raw.githubusercontent.com/Martinikaws/RivalsSkinChangerFULLMATCHA/refs/heads/main/main.lua"
+local SCRIPT_URL = "https://raw.githubusercontent.com/7n8s/SkinChanger/main/main.lua"
 local SITE = "https://martinikaws.github.io/rivals-skins/"
 local RIVALS_GAME_ID = 6035872082
 -- Keys the show/hide key can be set to (Windows key codes), by name.
