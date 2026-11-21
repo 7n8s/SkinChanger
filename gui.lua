@@ -1,0 +1,4122 @@
+-- Rivals changer GUI, drawn on screen
+-- Edits rivals_config.lua and runs the skin changer, in a window of its own
+-- drawn with the Drawing library (it replaced the Matcha menu tab, now kept as
+-- RivalsSkinGuiMatcha.lua): weapons by loadout slot, skin grid with pictures,
+-- Switch and Swap, wraps, finishers, charms, sky, lighting and sounds. A key
+-- (Right Shift unless changed in Settings) shows and hides it; the accent
+-- color is picked there too. Auto-apply on join applies the saved config once
+-- per server.
+--
+-- Matcha can't create instances, so everything is Drawing objects redrawn every
+-- frame from a pool. Pictures come from the config site (the same files its
+-- pages use) and are cached in the workspace as .dat files.
+
+local FILE = "rivals_config.lua"
+local SETTINGS = "rivals_gui_settings.txt"
+local BACKUP = "rivals_config.backup.lua"
+local CACHE = "rivals_gui_cache"
+local SCRIPT_FILES = {"RivalsSkinSwapper.lua", "workspace/RivalsSkinSwapper.lua", "scripts/RivalsSkinSwapper.lua"}
+local SCRIPT_URL = "https://raw.githubusercontent.com/Martinikaws/RivalsSkinChangerFULLMATCHA/refs/heads/main/main.lua"
+local SITE = "https://martinikaws.github.io/rivals-skins/"
+local RIVALS_GAME_ID = 6035872082
+-- Keys the show/hide key can be set to (Windows key codes), by name.
+local KEY_NAMES = {
+    [0x08] = "Backspace", [0x09] = "Tab", [0x0D] = "Enter", [0x14] = "Caps Lock", [0x20] = "Space",
+    [0x21] = "Page Up", [0x22] = "Page Down", [0x23] = "End", [0x24] = "Home", [0x25] = "Left", [0x26] = "Up",
+    [0x27] = "Right", [0x28] = "Down", [0x2D] = "Insert", [0x2E] = "Delete", [0xA0] = "Left Shift",
+    [0xA1] = "Right Shift", [0xA2] = "Left Ctrl", [0xA3] = "Right Ctrl", [0xA4] = "Left Alt", [0xA5] = "Right Alt",
+    [0xBA] = ";", [0xBB] = "=", [0xBC] = ",", [0xBD] = "-", [0xBE] = ".", [0xBF] = "/", [0xC0] = "`",
+    [0xDB] = "[", [0xDC] = "\\", [0xDD] = "]", [0xDE] = "'",
+}
+for i = 0, 25 do KEY_NAMES[0x41 + i] = string.char(65 + i) end
+for i = 0, 9 do KEY_NAMES[0x30 + i] = tostring(i); KEY_NAMES[0x60 + i] = "Num " .. i end
+for i = 1, 12 do KEY_NAMES[0x6F + i] = "F" .. i end
+local function keyName(vk) return KEY_NAMES[vk] or ("Key " .. tostring(vk)) end
+local DEFAULT_TOGGLE, DEFAULT_ACCENT = 0xA1, "568cff"
+
+assert(Drawing and type(Drawing.new) == "function", "Matcha's Drawing library is required.")
+assert(type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function",
+    "Matcha file functions are required.")
+
+-- A second run replaces the first; the menu-tab GUI steps aside too.
+-- Only in RIVALS. (The id is 0 until the game has loaded; started that early,
+-- the window closes itself once the game turns out to be another one.)
+local function otherGame()
+    local ok, id = pcall(function() return tonumber(game.GameId) end)
+    return ok and id ~= nil and id ~= 0 and id ~= RIVALS_GAME_ID
+end
+if otherGame() then
+    print("[Rivals GUI] Not RIVALS - the GUI stays off in this game.")
+    return
+end
+
+if _G.__RivalsDrawnGui then pcall(_G.__RivalsDrawnGui.stop) end
+pcall(function() UI.RemoveTab("Rivals Changer") end)
+
+_G.RivalsGuiState = _G.RivalsGuiState or {busy = false}
+local shared = _G.RivalsGuiState
+shared.busy = false
+local guiToken = {}
+_G.__RivalsGuiSession = guiToken
+
+-- Lists that don't come from the game
+
+local function numbered(prefix, from, to)
+    local out = {}
+    for n = from, to do out[#out + 1] = string.format("%s %02d", prefix, n) end
+    return out
+end
+local SKY_GROUPS = {
+    {name = "Game skies", skies = {"blue", "space", "graveyard", "sudden death", "station", "westown", "black", "gray"}},
+    {name = "Cloudy", skies = numbered("cloudy", 1, 25)},
+    {name = "Space", skies = {"galaxy", "blue nebula", "gold nebula"}},
+    {name = "More A-D", skies = {"aurora", "beautiful", "black hole", "blue sky", "broken sky", "castle grounds", "chill gray", "chill pink", "chroma key", "clear skies", "cyan", "dead star forest", "disaster"}},
+    {name = "More E-M", skies = {"elegant morning", "emo", "fade blue", "forest", "goodnight", "grimnight", "hades", "hazy", "jungle", "light blue", "light pink", "minecraft", "minecraft end"}},
+    {name = "More M-P", skies = {"moonlight", "neon sky", "neon sky 2", "nibiru", "night", "night sky moon", "northern lights", "oblivion", "orange", "overcast", "pandora", "peaceful morning", "pink sunrise"}},
+    {name = "More P-S", skies = {"pumpkin hill", "purple nebula", "red", "setting sun", "sfoth", "shiverfrost", "sky 05", "sky 13", "sky 2006", "sky 22", "sky 31", "sky 38", "sky 47"}},
+    {name = "More S-Z", skies = {"sky purple", "sky sunset", "space blue", "spooky", "sunny sky", "universe", "utter east", "whomp fortress", "winterness", "xen", "zen end"}},
+}
+-- Front faces of the game's own skies; the uploaded ones come from skyboxes.json.
+local SKY_FACES = {
+    blue = "14147882761", space = "10196550367", graveyard = "135908632589654",
+    ["sudden death"] = "84214501374682", station = "2108482231", westown = "12261809766",
+}
+local SOUND_LIBRARY = {
+    {name = "Rivals", sounds = {
+        {"Hitmarker tick", "13110130082"}, {"Headshot crack", "16537449730"}, {"Elimination 1", "16530229616"},
+        {"Elimination 2", "16530229541"}, {"Elimination 3", "16530229695"}, {"Target shatter", "14441658101"},
+        {"RPG explosion", "13455969017"}, {"Equip click", "13158735106"}, {"Landing", "16736552001"},
+        {"Jump", "16736552098"}, {"Duel timer tick", "17826390328"}, {"Click", "177266782"},
+    }},
+    {name = "Roblox", sounds = {
+        {"Classic hit", "12222046"}, {"Button", "12221967"}, {"Electronic ping", "12221990"},
+        {"Glass break", "12222005"}, {"Kerplunk", "12222054"}, {"Fast click", "12221976"},
+        {"Bright click", "15675059323"}, {"Cute pop", "15675055424"}, {"Notification", "17208361335"},
+        {"Coin", "127645268874265"}, {"Pinball bell", "16480570986"}, {"8-bit blip", "16480580213"},
+        {"Metal click", "16480551554"}, {"Sparkle ding", "9126073001"}, {"Cannon blast", "3149249837"},
+    }},
+    {name = "Hit sounds", sounds = {
+        {"Undertale critical hit", "140181868959125"}, {"Hit sound", "139520673393967"},
+        {"Undertale attack hit", "140721035016341"}, {"Fist hit", "140604838213617"},
+        {"TF2 critical hit", "137392628136734"}, {"AvA punch", "138208560796742"}, {"Rock hit", "82708037443413"},
+        {"Spear hit", "135278368445325"}, {"Persona 5 hit", "140706017778464"},
+        {"Energy sword hit", "139503070303020"}, {"Stone hit", "3581383408"}, {"8-bit impact", "109598434966968"},
+        {"Minecraft hit", "73369656122118"}, {"Car hit", "1897654568"}, {"Beam hit", "103134129110384"},
+    }},
+    {name = "Your pack", sounds = {
+        {"agpa 1", "102651850556408"}, {"agpa 2", "132463144859699"}, {"Huhh", "115574480250251"},
+        {"Minecraft hurt", "127059326655954"}, {"msfrs.hit", "138523457528846"}, {"neverlose.cc", "139452805868562"},
+        {"Rust headshot 2", "138750331387064"}, {"skeet (louder)", "140247876667835"},
+        {"Taco Bell bong", "128327858093323"}, {"Bubble pop", "121434237134952"},
+        {"Windows XP error", "95509039020568"}, {"My name is Jeff", "2867856238"}, {"HL2 crowbar", "73268721537561"},
+        {"DSR-1", "93739917036633"}, {"Fatality", "97439296876895"}, {"Bepis", "1921494658"},
+        {"Burp", "130147881880627"}, {"Duck quack", "140601322851309"}, {"Computer beep", "2626561747"},
+        {"MGS alert", "139345986070502"}, {"Doom shotgun", "15120932483"}, {"Cash register", "120891770644830"},
+        {"Cowbell", "9125935023"}, {"Winner FX", "1841267764"}, {"Cartoon bubble", "5852470908"},
+    }},
+    {name = "Community", sounds = {
+        {"CoD hitmarker", "138832207290954"}, {"Quake hitmarker", "1455817260"},
+        {"GameSense hitmarker", "4817809188"}, {"Minecraft hitmarker", "127091812835195"},
+        {"Minecraft bow ding", "135478009117226"}, {"MLG hitmarker", "121351852050830"},
+        {"Head hitmarker", "17724154662"}, {"TF2 hitsound", "138901307926331"}, {"osu! hitsound", "123941247147792"},
+        {"Bubble pop", "119697580657161"}, {"CS:GO headshot", "133002449941130"}, {"Arsenal headshot", "18513634637"},
+        {"Fortnite headshot", "2513174484"}, {"Rust headshot", "128633263668964"},
+        {"Battlefield headshot", "70528023820006"}, {"PHIGHTING headshot", "138549196892842"},
+        {"TF2 kill", "124543461907751"}, {"Among Us kill", "130456049552264"}, {"MM2 knife kill", "97347330766907"},
+        {"Double kill", "116907610084760"},
+    }},
+    {name = "Kenney (CC0)", sounds = {
+        {"Punch heavy", "107508753428253"}, {"Punch", "76122581259100"}, {"Metal tap", "138075431083492"},
+        {"Metal clang", "133464625805308"}, {"Glass tap", "138936753289661"}, {"Glass smash", "75898126734535"},
+        {"Bell hit", "126126591991039"}, {"Plate tap", "117110797440641"}, {"Tin hit", "135391446483517"},
+        {"Soft thud", "95039951320381"}, {"Click", "127906824435990"}, {"Tick", "130702709867354"},
+        {"Confirm", "112196335049721"}, {"Glass ding", "127490438798725"}, {"Pluck", "72021613097471"},
+        {"Bong", "117732813936667"}, {"Drop", "128207733490113"}, {"Glitch", "131159017045649"},
+        {"Zap", "136683295906047"}, {"Zap two-tone", "132620272525127"}, {"Pep", "70583920911483"},
+        {"High up", "117530563976701"}, {"Phaser up", "104765335548518"}, {"Power up", "105788477038167"},
+        {"Three-tone", "70578968807464"}, {"Small laser", "91301983822305"}, {"Retro laser", "118116613865507"},
+        {"Explosion crunch", "82931503751689"},
+    }},
+}
+local SOUND_SLOTS = {{"Hit", "Body hit"}, {"Critical", "Headshot"}, {"Kill", "Kill"}}
+local RANKS = {"Archnemesis", "Nemesis", "Onyx 3", "Onyx 2", "Onyx 1", "Diamond 3", "Diamond 2", "Diamond 1",
+    "Platinum 3", "Platinum 2", "Platinum 1", "Gold 3", "Gold 2", "Gold 1", "Silver 3", "Silver 2", "Silver 1",
+    "Bronze 3", "Bronze 2", "Bronze 1", "Unranked"}
+local RARITY_COLORS = {
+    Common = Color3.fromRGB(123, 255, 0), Rare = Color3.fromRGB(0, 221, 255), Legendary = Color3.fromRGB(255, 60, 60),
+    Mythical = Color3.fromRGB(129, 133, 242), Unique = Color3.fromRGB(255, 140, 0), Genuine = Color3.fromRGB(127, 163, 90),
+    Custom = Color3.fromRGB(255, 79, 216),
+}
+-- Loadout slot of each weapon; the site's list replaces this when it loads.
+local WEAPON_SLOTS = {}
+for slot, names in pairs({
+    Primary = {"Assault Rifle", "Bow", "Burst Rifle", "Crossbow", "Distortion", "Energy Rifle", "Flamethrower",
+        "Grenade Launcher", "Gunblade", "Minigun", "Paintball Gun", "Permafrost", "RPG", "Shotgun", "Sniper", "Wildcat"},
+    Secondary = {"Daggers", "Energy Pistols", "Exogun", "Flare Gun", "Handgun", "Revolver", "Shorty", "Slingshot",
+        "Spray", "Uzi", "Warper"},
+    Melee = {"Battle Axe", "Chainsaw", "Fists", "Katana", "Knife", "Maul", "Riot Shield", "Scythe", "Spear", "Trowel"},
+    Utility = {"Flashbang", "Freeze Ray", "Grappler", "Grenade", "Jump Pad", "Medkit", "Molotov", "Satchel",
+        "Smoke Grenade", "Subspace Tripmine", "War Horn", "Warpstone"},
+}) do
+    for _, name in ipairs(names) do WEAPON_SLOTS[name] = slot end
+end
+local WRAP_RARITY_NAMES = {"Common", "Rare", "Legendary", "Mythical", "Unique", "Genuine", "Unobtainable"}
+
+local state = {
+    status = "Loading...", lines = {}, values = {}, swaps = {}, readable = false,
+    tab = "Skins", skinsView = "main", slotTab = "All", mode = "Switch", swapStep = 1, swapOwned = {},
+    weapon = nil, cosKind = "wraps", owned = {}, rank = {},
+    skyGroup = 1, soundSlot = 1, soundGroup = 1,
+    inputs = {}, scroll = {}, mouseOffset = 0, open = true,
+    toggleKey = DEFAULT_TOGGLE, accent = DEFAULT_ACCENT,
+    -- "You own" lists show only what you own; the window stays hidden when
+    -- autoexec starts it.
+    ownedOnly = true, showOnAutoexec = false,
+    -- Extras: safe mode applies skins only; FPS mode slows the changer's
+    -- loops down; the panic key puts the game's own look back.
+    safeMode = false, fpsMode = false, panicKey = nil, settingsPage = 1,
+    notify = 1, notifyStyle = 1, lastRbx = nil,
+}
+local catalog = {weapons = {}, wraps = {}, finishers = {}, charms = {}, skyFaces = {}, loaded = false}
+
+-- Config file
+
+local function trim(s) return s:match("^%s*(.-)%s*$") end
+local function header(line)
+    local s = line:match("^%s*%[%s*(.-)%s*%]%s*$")
+    return s and s:lower() or nil
+end
+local function pair(line)
+    if line:match("^%s*%-%-") then return nil end
+    local k, v = line:match("^%s*([^=]-)%s*=%s*(.-)%s*$")
+    if k and trim(k) ~= "" then return trim(k), v end
+end
+local function swapLine(line)
+    local w, owned, target = line:match("^%s*([^|]-)%s*|%s*([^>]-)%s*>%s*(.-)%s*$")
+    if w and owned and target and w ~= "" and owned ~= "" and target ~= "" then return w, owned, target end
+end
+local function indexConfig()
+    state.values = {skins = {}, wraps = {}, finishers = {}, charms = {}, skybox = {}, lighting = {}, sounds = {}}
+    state.swaps = {}
+    local section = "skins"
+    for _, line in ipairs(state.lines) do
+        local h = header(line)
+        if h then
+            section = h
+        elseif section == "skins" and not line:match("^%s*%-%-") and swapLine(line) then
+            local w, owned, target = swapLine(line)
+            state.swaps[w] = state.swaps[w] or {}
+            state.swaps[w][owned] = target
+        else
+            local k, v = pair(line)
+            if k then
+                state.values[section] = state.values[section] or {}
+                state.values[section][k] = v
+            end
+        end
+    end
+end
+local function configText()
+    if #state.lines == 0 then return "-- Rivals config\n" end
+    return table.concat(state.lines, "\n") .. "\n"
+end
+-- Changed compared with what was last loaded or saved.
+local function markChanged()
+    state.dirty = configText() ~= state.cleanText
+    state.status = state.dirty and "Changed - press Save & Apply." or "No changes."
+end
+-- The changer trades two models for each line, so a skin, finisher or charm
+-- can only be in one line: it skips a second line that uses one again.
+-- Returns those lines, in the order the changer would skip them.
+local function configClashes()
+    local out, section, touched, used, swaps = {}, "skins", {}, {}, {}
+    for _, line in ipairs(state.lines) do
+        local h = header(line)
+        if h then
+            section = h
+        elseif section == "skins" then
+            local w, o, t = swapLine(line)
+            if w then
+                swaps[#swaps + 1] = {o, t}
+            else
+                local k, v = pair(line)
+                local low = v and v:lower()
+                if k and v and low ~= "default" and low ~= "standard" then
+                    if touched[v] or touched[k] then
+                        out[#out + 1] = k .. " -> " .. v
+                    else
+                        touched[v], touched[k] = true, true
+                    end
+                end
+            end
+        elseif section == "finishers" or section == "charms" then
+            local k, v = pair(line)
+            if k and v then
+                -- Every rank of a season charm is the same model.
+                local model = section == "charms" and (v:match("^(Season %d+)%s") or v) or v
+                used[section] = used[section] or {}
+                local u = used[section]
+                if u[k] or u[model] then out[#out + 1] = k .. " -> " .. v else u[k], u[model] = true, true end
+            end
+        end
+    end
+    -- The changer runs the swaps after the Weapon=Skin lines.
+    for _, sw in ipairs(swaps) do
+        if touched[sw[2]] or touched[sw[1]] then
+            out[#out + 1] = sw[1] .. " -> " .. sw[2]
+        else
+            touched[sw[2]], touched[sw[1]] = true, true
+        end
+    end
+    return out
+end
+local function clashWarning()
+    local bad = configClashes()
+    if #bad == 0 then return nil end
+    return "Two lines use the same item - the changer skips: " .. table.concat(bad, ", ")
+end
+local function loadConfig()
+    local raw = isfile(FILE) and readfile(FILE) or nil
+    local content = (raw or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
+    if content:sub(1, 3) == string.char(239, 187, 191) then content = content:sub(4) end
+    local lines = {}
+    for line in (content .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
+    while lines[#lines] == "" do table.remove(lines) end
+    local cleaned = {}
+    for _, line in ipairs(lines) do
+        local k, v = pair(line)
+        if not (k and v and k == v) then cleaned[#cleaned + 1] = line end
+    end
+    state.lines, state.baseline = cleaned, raw
+    indexConfig()
+    state.readable = true
+    state.cleanText, state.dirty = configText(), false
+    state.status = clashWarning() or (raw and "Loaded your configuration." or "Nothing saved yet - pick something.")
+end
+-- One key per section. A nil value removes the line; unknown sections get a
+-- new [Header] at the end. Lines this GUI doesn't understand are kept.
+local function setMapping(section, key, value)
+    if shared.busy or not state.readable then return end
+    local output, current, found = {}, "skins", false
+    for _, line in ipairs(state.lines) do
+        local h = header(line)
+        if h then current = h end
+        local k = not h and pair(line) or nil
+        if current == section and k == key then
+            if not found and value then output[#output + 1] = key .. "=" .. value end
+            found = true
+        else
+            output[#output + 1] = line
+        end
+    end
+    if not found and value then
+        local position = section == "skins" and 1 or nil
+        current = "skins"
+        for i, line in ipairs(output) do
+            local h = header(line)
+            if h then current = h end
+            if current == section then position = i + 1 end
+        end
+        if not position then
+            output[#output + 1] = ""
+            output[#output + 1] = "[" .. section:sub(1, 1):upper() .. section:sub(2) .. "]"
+            position = #output + 1
+        end
+        table.insert(output, position, key .. "=" .. value)
+    end
+    state.lines = output
+    indexConfig()
+    markChanged()
+end
+-- "Weapon | Owned > Target" lives in the skins section after the Weapon=Skin
+-- lines. A nil target removes it.
+local function setSwap(weapon, owned, target)
+    if shared.busy or not state.readable then return end
+    local output, section, lastSkinLine = {}, "skins", 0
+    for _, line in ipairs(state.lines) do
+        local h = header(line)
+        if h then section = h end
+        local keep = true
+        if section == "skins" and not h then
+            local w, o = swapLine(line)
+            if w == weapon and o == owned then keep = false end
+        end
+        if keep then
+            output[#output + 1] = line
+            if section == "skins" and not h then lastSkinLine = #output end
+        end
+    end
+    if target then
+        table.insert(output, lastSkinLine + 1, weapon .. " | " .. owned .. " > " .. target)
+    end
+    state.lines = output
+    indexConfig()
+    markChanged()
+end
+-- No hands: [NoHands] has Weapon=true lines, and All=true for every weapon
+-- (a Weapon=false line then keeps that one's arms).
+local function handsHidden(weapon)
+    local v = state.values.nohands or {}
+    local own = v[weapon] and tostring(v[weapon]):lower()
+    if own == "true" then return true elseif own == "false" then return false end
+    return tostring(v.All or ""):lower() == "true"
+end
+local function toggleHands(weapon)
+    local all = tostring((state.values.nohands or {}).All or ""):lower() == "true"
+    if handsHidden(weapon) then
+        setMapping("nohands", weapon, all and "false" or nil)
+    else
+        setMapping("nohands", weapon, (not all) and "true" or nil)
+    end
+end
+-- Makes a pick, then takes it back if it would put one item in two lines.
+local function guarded(change, target)
+    local before, was = state.lines, #configClashes()
+    change()
+    if #configClashes() > was then
+        state.lines = before
+        indexConfig()
+        markChanged()
+        state.status = target .. " is already used by another line. Two can't look like the same one - change that line first."
+        if type(notify) == "function" then pcall(notify, "Rivals Skin Changer", state.status, 6) end
+    end
+end
+-- Config history: every save keeps the previous config (last 10), so one
+-- can be put back. Share codes are the config's lines in base64, for the
+-- site's import box or rivals_import.txt.
+local history = {file = "rivals_config_history.txt", max = 10, SEP = "--@@ "}
+function history.list()
+    local ok, body = pcall(readfile, history.file)
+    local out = {}
+    if not ok or type(body) ~= "string" then return out end
+    local cur
+    for line in (body:gsub("\r", "") .. "\n"):gmatch("(.-)\n") do
+        if line:sub(1, #history.SEP) == history.SEP then
+            cur = {stamp = line:sub(#history.SEP + 1), lines = {}}
+            out[#out + 1] = cur
+        elseif cur then
+            cur.lines[#cur.lines + 1] = line
+        end
+    end
+    for _, e in ipairs(out) do
+        while e.lines[#e.lines] == "" do table.remove(e.lines) end
+        e.text, e.lines = table.concat(e.lines, "\n"), nil
+    end
+    return out
+end
+function history.push(text)
+    if type(text) ~= "string" or text:gsub("%s+", "") == "" then return end
+    local list = history.list()
+    text = text:gsub("\r", ""):gsub("\n+$", "")
+    if list[1] and list[1].text == text then return end
+    local okT, stamp = pcall(os.date, "%Y-%m-%d %H:%M")
+    table.insert(list, 1, {stamp = okT and stamp or "earlier", text = text})
+    local out = {}
+    for i = 1, math.min(#list, history.max) do
+        out[#out + 1] = history.SEP .. list[i].stamp .. "\n" .. list[i].text:gsub("\n+$", "")
+    end
+    history.cached = nil
+    pcall(writefile, history.file, table.concat(out, "\n") .. "\n")
+end
+-- Lines that changed between two configs: added and removed (blank lines and
+-- comments don't count).
+function history.diff(old, new)
+    local function set(text)
+        local out, order = {}, {}
+        for line in ((text or ""):gsub("\r", "") .. "\n"):gmatch("(.-)\n") do
+            line = trim(line)
+            if line ~= "" and line:sub(1, 2) ~= "--" and not out[line] then out[line] = true; order[#order + 1] = line end
+        end
+        return out, order
+    end
+    local a, ao = set(old)
+    local b, bo = set(new)
+    local added, removed = {}, {}
+    for _, l in ipairs(bo) do if not a[l] then added[#added + 1] = l end end
+    for _, l in ipairs(ao) do if not b[l] then removed[#removed + 1] = l end end
+    return added, removed
+end
+-- What the Config page shows, worked out at most twice a second (reading the
+-- file and comparing every frame would be slow): the unsaved changes and the
+-- history with each entry's difference from the saved config.
+function history.view(saved, now)
+    local v = history.cached
+    if v and v.saved == saved and v.now == now and tick() - v.at < 0.5 then return v end
+    local list = (v and v.saved == saved and tick() - v.at < 5) and v.list or history.list()
+    if not (v and v.list == list) then
+        for _, e in ipairs(list) do
+            local a, r = history.diff(e.text, saved)
+            e.changes = #a + #r
+        end
+    end
+    local added, removed = history.diff(saved, now)
+    v = {saved = saved, now = now, at = tick(), list = list, added = added, removed = removed}
+    history.cached = v
+    return v
+end
+-- Whether going from one config to another needs only a quick apply: the
+-- skin-side sections (weapon skins and swaps, wraps, finishers, charms) are
+-- the same, so the changer can keep those and redo only the rest.
+function history.quickable(old, new)
+    local SKIN = {skins = true, wraps = true, finishers = true, charms = true}
+    local function skinLines(text)
+        local out, section = {}, "skins"
+        for line in ((text or ""):gsub("\r", "") .. "\n"):gmatch("(.-)\n") do
+            line = trim(line)
+            local h = line:match("^%[%s*(.-)%s*%]$")
+            if h then
+                h = h:lower()
+                section = h:find("wrap") and "wraps" or h:find("finisher") and "finishers" or h:find("charm") and "charms"
+                    or h:find("skin") and "skins" or "other"
+            elseif line ~= "" and line:sub(1, 2) ~= "--" and SKIN[section] then
+                out[#out + 1] = section .. ":" .. line
+            end
+        end
+        table.sort(out)
+        return table.concat(out, "\n")
+    end
+    return old ~= nil and skinLines(old) == skinLines(new)
+end
+-- The crash trail's verdict on the last changer run: the step it was on when
+-- it never reached "done" (Matcha or Roblox closed mid-apply), else nil.
+function history.crashedStep()
+    local ok, body = pcall(readfile, "rivals_crash_trail.txt")
+    if not ok or type(body) ~= "string" then return nil end
+    local started, last
+    for line in body:gmatch("[^\r\n]+") do
+        local step = line:match("changer: (.*)$")
+        if step == "start" then started, last = true, nil
+        elseif step == "done" then started = false
+        elseif step and started then last = step end
+    end
+    return started and (last or "starting") or nil
+end
+-- Loadouts: 5 named slots, each a whole config in rivals_loadout_N.lua, its
+-- name on the first line ("-- loadout: name").
+history.LOADOUTS = 5
+function history.loadout(n)
+    local ok, body = pcall(readfile, "rivals_loadout_" .. n .. ".lua")
+    if not ok or type(body) ~= "string" or body == "" then return nil end
+    local name = body:match("^%-%- loadout: ([^\r\n]*)")
+    return {name = name ~= "" and name or ("Loadout " .. n), text = body:gsub("^%-%- loadout: [^\n]*\n", "")}
+end
+function history.saveLoadout(n, name, text)
+    name = tostring(name or ""):gsub("[\r\n]", ""):sub(1, 24)
+    if name == "" then name = "Loadout " .. n end
+    writefile("rivals_loadout_" .. n .. ".lua", "-- loadout: " .. name .. "\n" .. text)
+    assert(history.loadout(n), "Could not save the loadout.")
+    history.loadoutCache = nil
+    return name
+end
+-- The slots, read at most once a second (the page draws every frame).
+function history.loadouts()
+    local c = history.loadoutCache
+    if c and tick() - c.at < 1 then return c.list end
+    local list = {}
+    for n = 1, history.LOADOUTS do list[n] = history.loadout(n) or false end
+    history.loadoutCache = {at = tick(), list = list}
+    return list
+end
+function history.code(text)
+    local lines = {}
+    for line in ((text or ""):gsub("\r", "") .. "\n"):gmatch("(.-)\n") do
+        line = trim(line)
+        if line ~= "" and line:sub(1, 2) ~= "--" then lines[#lines + 1] = line end
+    end
+    return "RSC1:" .. base64encode(table.concat(lines, "\n"))
+end
+-- A share code or a plain config, as config text.
+function history.decode(text)
+    text = trim(text or "")
+    local code = text:match("^RSC1:([%w%+/=]+)$")
+    if code then
+        local ok, out = pcall(base64decode, code)
+        return ok and type(out) == "string" and out or nil
+    end
+    return text ~= "" and text or nil
+end
+
+local function saveConfig()
+    assert(state.readable, "Reload the configuration before saving.")
+    local current = isfile(FILE) and readfile(FILE) or nil
+    assert(current == state.baseline,
+        "The config changed outside this GUI. Press Reload config; your file was not overwritten.")
+    local content = configText()
+    if current == content then return end
+    if current then
+        writefile(BACKUP, current)
+        assert(readfile(BACKUP) == current, "Could not verify the backup; save cancelled.")
+        history.push(current)
+    end
+    writefile(FILE, content)
+    assert(readfile(FILE) == content, "Could not verify the save. Your previous config is in " .. BACKUP)
+    state.baseline = content
+    state.cleanText, state.dirty = configText(), false
+end
+
+-- Settings: auto-apply is shared with the menu-tab GUI; the rest is this one's.
+local function autoexecLoadsGui()
+    local AUTOEXEC_DIRS = {"../autoexec", "C:/matcha/autoexec", "autoexec"}
+    local GUI_MARKERS = {"RivalsSkinGui", "RivalsSkinChangerFULLMATCHA", "gui.lua"}
+    for _, dir in ipairs(AUTOEXEC_DIRS) do
+        local okList, files = pcall(listfiles, dir)
+        if okList and type(files) == "table" then
+            for _, path in ipairs(files) do
+                local okRead, body = pcall(readfile, path)
+                if okRead and type(body) == "string" then
+                    for _, marker in ipairs(GUI_MARKERS) do
+                        if body:find(marker, 1, true) then return true end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+-- Crash trail: every step goes straight to a file, so when Matcha itself dies
+-- (nothing else records why) the last lines say what was running. It keeps
+-- the last 300 lines across joins and restarts. Nothing is sent anywhere.
+if type(_G.__RSC_CRUMB) ~= "function" then
+    _G.__RSC_CRUMB = function(step)
+        pcall(function()
+            local file = "rivals_crash_trail.txt"
+            local okR, body = pcall(readfile, file)
+            local lines = {}
+            if okR and type(body) == "string" then
+                for line in body:gmatch("[^\n]+") do lines[#lines + 1] = line end
+            end
+            local okT, stamp = pcall(os.date, "%m-%d %H:%M:%S")
+            lines[#lines + 1] = (okT and stamp or "?") .. "  " .. tostring(game.JobId):sub(1, 8) .. "  " .. tostring(step):sub(1, 150)
+            local from = math.max(1, #lines - 299)
+            writefile(file, table.concat(lines, "\n", from) .. "\n")
+        end)
+    end
+end
+_G.__RSC_CRUMB("drawn GUI: start")
+local function loadSettings()
+    local okRead, body = pcall(readfile, SETTINGS)
+    local auto
+    if okRead and type(body) == "string" then
+        state.settingsRead = true
+        local value = body:match("autoapply%s*=%s*(%w+)")
+        if value then auto = (value == "1" or value == "true" or value == "on") end
+        state.mouseOffset = tonumber(body:match("mouseoffset%s*=%s*(%-?%d+)")) or 0
+        state.winW = tonumber(body:match("winw%s*=%s*(%d+)"))
+        state.winH = tonumber(body:match("winh%s*=%s*(%d+)"))
+        local key = tonumber(body:match("togglekey%s*=%s*(%d+)"))
+        state.toggleKey = key and KEY_NAMES[key] and key or DEFAULT_TOGGLE
+        state.accent = body:match("accent%s*=%s*(%x%x%x%x%x%x)") or DEFAULT_ACCENT
+        state.ownedOnly = body:match("ownedonly%s*=%s*(%d)") ~= "0"
+        state.showOnAutoexec = body:match("showonautoexec%s*=%s*(%d)") == "1"
+        state.noticeSeen = body:match("noticeseen%s*=%s*(%d)") == "1"
+        state.safeMode = body:match("safemode%s*=%s*(%d)") == "1"
+        state.fpsMode = body:match("fpsmode%s*=%s*(%d)") == "1"
+        local panic = tonumber(body:match("panickey%s*=%s*(%d+)"))
+        state.panicKey = panic and KEY_NAMES[panic] and panic or nil
+        state.notify = tonumber(body:match("notify%s*=%s*(%d)")) or 1
+        state.notifyStyle = tonumber(body:match("notifystyle%s*=%s*(%d)")) or 1
+        state.lastRbx = body:match("lastrbx%s*=%s*(version%-%x+)")
+    end
+    if auto == nil then
+        local okScan, found = pcall(autoexecLoadsGui)
+        auto = okScan and found or false
+    end
+    state.autoApply = auto
+end
+local function saveSettings()
+    pcall(writefile, SETTINGS, "autoapply=" .. (state.autoApply and "1" or "0") .. "\n"
+        .. "mouseoffset=" .. tostring(state.mouseOffset) .. "\n"
+        .. (state.winW and ("winw=" .. state.winW .. "\nwinh=" .. state.winH .. "\n") or "")
+        .. "togglekey=" .. tostring(state.toggleKey) .. "\n"
+        .. "accent=" .. tostring(state.accent) .. "\n"
+        .. "ownedonly=" .. (state.ownedOnly and "1" or "0") .. "\n"
+        .. "showonautoexec=" .. (state.showOnAutoexec and "1" or "0") .. "\n"
+        .. "noticeseen=" .. (state.noticeSeen and "1" or "0") .. "\n"
+        .. "safemode=" .. (state.safeMode and "1" or "0") .. "\n"
+        .. "fpsmode=" .. (state.fpsMode and "1" or "0") .. "\n"
+        .. "panickey=" .. tostring(state.panicKey or 0) .. "\n"
+        .. "notify=" .. tostring(state.notify) .. "\n"
+        .. "notifystyle=" .. tostring(state.notifyStyle) .. "\n"
+        .. (state.lastRbx and ("lastrbx=" .. state.lastRbx .. "\n") or ""))
+end
+
+-- What you own
+--
+-- Your player data has a CosmeticInventory table: a cosmetic's name maps to
+-- true, or to a table of the weapons you own it for ({IsUniversal = true} for
+-- all of them). It sits at PlayerDataController.CurrentData.Data, all Lua
+-- tables, read from memory through the registry like the changer reads the
+-- item libraries. nil when it can't be read; the lists then show everything.
+local inventory = nil
+local readInventory
+-- Where a ModuleScript keeps its thread and registry slot: the changer's
+-- shared layout, else the known pair whose pointer leads to a thread
+-- (+0x150/+0x170 on build 9ac8595, +0x170/+0x178 before).
+local function modFields(ms)
+    local L = _G.__RSC_LAYOUT
+    if L and L.thread and L.slot then return L.thread, L.slot end
+    for _, pair in ipairs({{0x168, 0x170}, {0x150, 0x170}, {0x170, 0x178}}) do
+        local okP, p = pcall(memory_read, "uintptr_t", ms.Address + pair[1])
+        if okP and p and p > 0x10000 and p < 0x7fffffffffff then
+            for b = 0, 3 do
+                local okB, v = pcall(memory_read, "byte", p + b)
+                if okB and (v == 10 or v == 9) then return pair[1], pair[2] end
+            end
+        end
+    end
+    return 0x150, 0x170
+end
+local function modThreadOff(ms) return (modFields(ms)) end
+local function modSlotOff(ms) local _, s = modFields(ms) return s end
+local detectLayout
+do
+    local mrd = memory_read
+    local function rd(a) local ok, v = pcall(mrd, "uintptr_t", a) return ok and v or nil end
+    local function rint(a) local ok, v = pcall(mrd, "int", a) return ok and v or nil end
+    local function rbyte(a) local ok, v = pcall(mrd, "byte", a) return ok and v or nil end
+    -- Finds tt, globalState, registry, lsizenode, array and node pointers
+    -- dynamically at runtime across Roblox updates, falling back to known builds.
+    local TAG_STRING, TAG_TABLE, TAG_THREAD = 6, 7, 10
+    -- Roblox build 4ea8e85 (Nov 2026) numbers Luau's types one lower
+    -- (thread 9, table 6, string 5): set from the thread tag in use.
+    local function useTags(threadTag)
+        if threadTag then TAG_THREAD, TAG_TABLE, TAG_STRING = threadTag, threadTag - 3, threadTag - 4 end
+    end
+    -- Known builds: 02c37bc (type byte +1) and cec3ad5 (type byte +0).
+    local KNOWN = {[2] = {tt = 2, globalState = 0x78, registry = 0x618, lsize = 6, sizearray = 8, array = 0x18, node = 0x20},
+        [1] = {tt = 1, globalState = 0x38, registry = 0x618, lsize = 4, sizearray = 8, array = 0x28, node = 0x18}, -- build 5a21b87
+        [0] = {tt = 0, globalState = 0x18, registry = 0x620, lsize = 5, sizearray = 8, array = 0x18, node = 0x10}}
+    local L = KNOWN[1]
+    local function isTable(t) return t and t > 0x10000 and rbyte(t + L.tt) == TAG_TABLE end
+
+    detectLayout = function(ms)
+        if _G.__RSC_LAYOUT and _G.__RSC_LAYOUT.array then return _G.__RSC_LAYOUT end
+        local thread = ms and ms.Address and rd(ms.Address + modThreadOff(ms))
+        local slot = ms and ms.Address and rint(ms.Address + modSlotOff(ms))
+        if not thread or thread < 0x10000 or not slot or slot < 1 then return nil end
+        local tt
+        for _, tag in ipairs({10, 9}) do
+            for b = 0, 3 do if not tt and rbyte(thread + b) == tag then tt = b; useTags(tag) end end
+        end
+        if not tt then return nil end
+
+        local function arrayOf(reg)
+            for _, so in ipairs({8, 12, 4}) do
+                local size = rint(reg + so)
+                if size and size >= slot and size < 10000000 then
+                    for _, ao in ipairs({0x20, 0x18, 0x28, 0x10}) do
+                        local arr = rd(reg + ao)
+                        if arr and arr > 0x10000 and arr < 0x7fffffffffff and rint(arr + (slot - 1) * 16 + 12) == TAG_TABLE then
+                            local t = rd(arr + (slot - 1) * 16)
+                            if t and t > 0x10000 and rbyte(t + tt) == TAG_TABLE then return t, so, ao end
+                        end
+                    end
+                end
+            end
+        end
+
+        local function nodesOfTable(t)
+            -- A table's nodes: a pointer and a size byte (lsizenode) that lead to
+            -- string keys. Its mask (2^l - 1) sat right after it until Roblox build
+            -- 11f155f3 (Oct 2026) moved the two apart, so any other header byte may
+            -- hold the mask. The pair whose nodes are well filled with string keys,
+            -- and that finds the most, wins (walking too many nodes would read other
+            -- tables' memory, which a fill check catches).
+            local bestKeys, bestNo, bestB = 0, nil, nil
+            for _, no in ipairs({0x18, 0x20, 0x10, 0x28}) do
+                local base = rd(t + no)
+                if base and base > 0x10000 and base < 0x7fffffffffff then
+                    for _, b in ipairs({tt == 0 and 6 or 4, 3, 4, 6, 5, 7, 2}) do
+                        local l = rbyte(t + b)
+                        local masked = false
+                        if l and l >= 1 and l <= 24 then
+                            for mb = 1, 7 do
+                                if mb ~= b and rbyte(t + mb) == (2 ^ l - 1) % 256 then masked = true break end
+                            end
+                        end
+                        if masked then
+                            local keys, count = 0, math.min(2 ^ l, 256)
+                            for i = 0, count - 1 do
+                                local n = base + i * 32
+                                local kp = rd(n + 16)
+                                if (rint(n + 28) or 0) % 16 == TAG_STRING and kp and kp > 0x10000 then
+                                    local ok, k = pcall(mrd, "string", kp + 24)
+                                    if ok and type(k) == "string" and #k > 0 and #k < 64 then keys = keys + 1 end
+                                end
+                            end
+                            if keys > bestKeys and keys >= count / 4 then bestKeys, bestNo, bestB = keys, no, b end
+                        end
+                    end
+                end
+            end
+            if bestNo then return bestNo, bestB end
+        end
+
+        local function tryAt(g, x, y)
+            local reg = rd(g + y)
+            if not reg or reg < 0x10000 or rint(g + y + 12) ~= TAG_TABLE or rbyte(reg + tt) ~= TAG_TABLE then return nil end
+            local t, so, ao = arrayOf(reg)
+            if not t then return nil end
+            local no, lsize = nodesOfTable(t)
+            if not no then return nil end
+            local res = {tt = tt, globalState = x, registry = y, lsize = lsize, sizearray = so, array = ao, node = no}
+            _G.__RSC_LAYOUT = res
+            return res
+        end
+
+        local xs = {0x18, 0x68}
+        for x = 0, 0x100, 8 do xs[#xs + 1] = x end
+        for _, x in ipairs(xs) do
+            local g = rd(thread + x)
+            if g and g > 0x10000 and g < 0x7fffffffffff then
+                local res = tryAt(g, x, 0x620)
+                if res then return res end
+            end
+        end
+        for _, x in ipairs(xs) do
+            local g = rd(thread + x)
+            if g and g > 0x10000 and g < 0x7fffffffffff then
+                for y = 0, 0x1000, 8 do
+                    local res = tryAt(g, x, y)
+                    if res then return res end
+                end
+            end
+        end
+        local fb = KNOWN[tt] or KNOWN[1]
+        _G.__RSC_LAYOUT = fb
+        return fb
+    end
+
+    local function moduleTable(ms)
+        local thread = ms and ms.Address and rd(ms.Address + modThreadOff(ms))
+        if not thread or thread < 0x10000 then return nil end
+        local shared = _G.__RSC_LAYOUT
+        if shared and shared.array then
+            L = shared
+            useTags(shared.tagThread)
+        else
+            local detected = detectLayout(ms)
+            if detected then L = detected end
+        end
+        if rbyte(thread + L.tt) ~= TAG_THREAD then return nil end
+        local g = rd(thread + L.globalState)
+        local reg = g and g > 0x10000 and rd(g + L.registry)
+        if not isTable(reg) then return nil end
+        local slot, size, arr = rint(ms.Address + modSlotOff(ms)), rint(reg + L.sizearray), rd(reg + L.array)
+        if not slot or not size or not arr or slot < 1 or slot > size then return nil end
+        local t = rd(arr + (slot - 1) * 16)
+        return isTable(t) and t or nil
+    end
+    -- Every string key of a table: key -> {value, type tag}
+    local function fields(t)
+        local out = {}
+        if not isTable(t) then return out end
+        local base, l = rd(t + L.node), rbyte(t + L.lsize)
+        if not base or base < 0x10000 or not l or l > 16 then return out end
+        for i = 0, 2 ^ l - 1 do
+            local node = base + i * 32
+            local tt, kp = rint(node + 12), rd(node + 16)
+            if tt and tt ~= 0 and kp and kp > 0x10000 then
+                local ok, key = pcall(mrd, "string", kp + 24)
+                if ok and type(key) == "string" and #key > 0 and #key < 80 then out[key] = {rd(node), tt} end
+            end
+        end
+        return out
+    end
+    -- The game's own item list (CosmeticLibrary.Cosmetics): name -> {type,
+    -- weapon, rarity, image id}. Used to add items the site doesn't list yet.
+    catalog.readGame = function()
+        local mods = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+        local lib = moduleTable(mods and mods:FindFirstChild("CosmeticLibrary"))
+        local cos = lib and fields(lib).Cosmetics
+        if not cos or not isTable(cos[1]) then return nil end
+        local function str(v)
+            if not v or v[2] ~= TAG_STRING then return nil end
+            local ok, x = pcall(mrd, "string", v[1] + 24)
+            return ok and type(x) == "string" and x ~= "" and x or nil
+        end
+        local out = {}
+        for name, v in pairs(fields(cos[1])) do
+            local f = fields(v[1])
+            out[name] = {type = str(f.Type), weapon = str(f.ItemName), rarity = str(f.Rarity),
+                image = (str(f.Image) or ""):match("(%d+)$")}
+        end
+        return out
+    end
+    readInventory = function()
+        local ok, result = pcall(function()
+            local ps = game:GetService("Players").LocalPlayer.PlayerScripts
+            local ctl = moduleTable(ps.Controllers.PlayerDataController)
+            local cur = ctl and fields(ctl).CurrentData
+            local data = cur and fields(cur[1]).Data
+            local inv = data and fields(data[1]).CosmeticInventory
+            if not inv or not isTable(inv[1]) then return nil end
+            local out, n = {}, 0
+            for name, v in pairs(fields(inv[1])) do
+                n = n + 1
+                if v[2] == TAG_TABLE then
+                    local on = {}
+                    for weapon in pairs(fields(v[1])) do on[weapon] = true end
+                    out[name] = on
+                else
+                    out[name] = true
+                end
+            end
+            return n > 0 and out or nil
+        end)
+        inventory = ok and result or nil
+        return inventory ~= nil
+    end
+end
+-- Owned at all, or (for a skin) owned for that weapon.
+local function owns(name, weapon)
+    local e = inventory and inventory[name]
+    if e == true then return true end
+    if type(e) ~= "table" then return false end
+    return weapon == nil or e.IsUniversal == true or e[weapon] == true
+end
+-- Whether the "you own" lists are cut down to what you own.
+local function ownedOnly() return state.ownedOnly and inventory ~= nil end
+
+-- Item lists
+
+local function fetch(url)
+    local body = (type(httpget) == "function") and httpget(url) or game:HttpGet(url)
+    assert(type(body) == "string" and #body > 0, "Download failed: " .. url)
+    return body
+end
+local function decode(text) return game:GetService("HttpService"):JSONDecode(text) end
+local function jsAssignment(source, name)
+    local encoded = source:match("window%." .. name .. "%s*=%s*(%b[])")
+    return encoded and decode(encoded) or nil
+end
+
+local function loadCatalog()
+    _G.__RSC_CRUMB("GUI: reading inventory")
+    readInventory()
+    _G.__RSC_CRUMB("GUI: reading the lists")
+    local out = {weapons = {}, wraps = {}, finishers = {}, charms = {}, skyFaces = {}, loaded = true}
+    -- Weapons, their skins, pictures and rarities, as the site shows them.
+    local okMap, map = pcall(function() return decode(fetch(SITE .. "skin_icon_map.json")) end)
+    local byName = {}
+    if okMap and type(map) == "table" then
+        -- The map, like the game's weapon models, has an "Unobtainable" entry
+        -- that isn't a weapon.
+        map.Unobtainable = nil
+        for weapon, skins in pairs(map) do
+            local entry = {name = weapon, skins = {}, info = {}}
+            for skin, data in pairs(skins) do
+                entry.info[skin] = {src = data.src, rarity = data.rarity}
+                if skin ~= "Standard" and skin ~= "Default" then entry.skins[#entry.skins + 1] = skin end
+            end
+            table.sort(entry.skins)
+            entry.icon = entry.info.Standard and entry.info.Standard.src
+            byName[weapon] = entry
+        end
+    end
+    -- Weapons the game has models for, so a new one still shows.
+    pcall(function()
+        local weapons = game:GetService("Players").LocalPlayer.PlayerScripts.Assets.ViewModels.Weapons
+        for _, w in ipairs(weapons:GetChildren()) do
+            if w.Name ~= "Unobtainable" then
+                byName[w.Name] = byName[w.Name] or {name = w.Name, skins = {}, info = {}}
+            end
+        end
+    end)
+    -- Items straight from the game: skins the site doesn't list yet are added
+    -- with the game's own picture, and marked new.
+    _G.__RSC_CRUMB("GUI: reading the game's items")
+    local okGame, gameItems = pcall(catalog.readGame)
+    _G.__RSC_CRUMB("GUI: game items read")
+    gameItems = okGame and gameItems or {}
+    local newCount = 0
+    local function gamePic(item)
+        return item.image and ("https://assetdelivery.roproxy.com/v1/asset/?id=" .. item.image) or nil
+    end
+    for name, item in pairs(gameItems) do
+        local w = item.type == "Skin" and item.weapon and byName[item.weapon]
+        if w and not w.info[name] then
+            w.info[name] = {src = gamePic(item), rarity = item.rarity, new = true}
+            w.skins[#w.skins + 1] = name
+            newCount = newCount + 1
+        end
+    end
+    for _, w in pairs(byName) do table.sort(w.skins) end
+    -- Slots from the site's weapon list, over the built-in ones.
+    local slots = {}
+    for name, slot in pairs(WEAPON_SLOTS) do slots[name] = slot end
+    pcall(function()
+        local encoded = fetch(SITE):match("const%s+OFFICIAL_WEAPON_DATA%s*=%s*(%b[])%s*;")
+        for _, w in ipairs(encoded and decode(encoded) or {}) do
+            if type(w.name) == "string" and type(w.category) == "string" then slots[w.name] = w.category end
+        end
+    end)
+    for name, w in pairs(byName) do w.slot = slots[name] or "Other" end
+    for _, w in pairs(byName) do out.weapons[#out.weapons + 1] = w end
+    table.sort(out.weapons, function(a, b) return a.name < b.name end)
+
+    local okWraps, wrapsJs = pcall(fetch, SITE .. "assets/wraps.js")
+    for _, row in ipairs(okWraps and jsAssignment(wrapsJs, "WRAPS") or {}) do
+        if type(row[1]) == "string" and not row[1]:find("MISSING_", 1, true) then
+            -- Each part: material, color, transparency, texture id. The game has
+            -- no wrap pictures (it paints a 3D sheet); the site's previews are
+            -- used, with these parts as color bands until one has loaded.
+            local colors, textures = {}, {}
+            for _, part in ipairs(type(row[4]) == "table" and row[4] or {}) do
+                local ok, c = pcall(Color3.fromHex, tostring(part[2]))
+                if ok and c and #colors < 3 then
+                    colors[#colors + 1] = c
+                    local tex = tonumber(part[4]) or 0
+                    textures[#colors] = tex > 0 and string.format("assets/images/wraps/%.0f.png", tex) or false
+                end
+            end
+            -- The site's wrap previews, one PNG per wrap named after it.
+            local slug = row[1]:lower():gsub("[^a-z0-9]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+            out.wraps[#out.wraps + 1] = {name = row[1], rarity = WRAP_RARITY_NAMES[(tonumber(row[2]) or 0) + 1],
+                colors = colors, textures = textures, src = "assets/images/wrapicons/" .. slug .. ".png"}
+        end
+    end
+    local wrapSeen = {}
+    for _, wr in ipairs(out.wraps) do wrapSeen[wr.name] = true end
+    for name, item in pairs(gameItems) do
+        if item.type == "Wrap" and not wrapSeen[name] then
+            out.wraps[#out.wraps + 1] = {name = name, rarity = item.rarity, src = gamePic(item), new = true}
+            newCount = newCount + 1
+        end
+    end
+    local okCos, cosJs = pcall(fetch, SITE .. "assets/cosmetics.js")
+    for _, kind in ipairs({{"finishers", "FINISHERS", "assets/images/finishers/"}, {"charms", "CHARMS", "assets/images/charms/"}}) do
+        local seen = {}
+        for _, row in ipairs(okCos and jsAssignment(cosJs, kind[2]) or {}) do
+            if type(row[1]) == "string" and not row[1]:find("MISSING_", 1, true) then
+                seen[row[1]] = true
+                out[kind[1]][#out[kind[1]] + 1] = {name = row[1], rarity = row[2],
+                    src = (type(row[3]) == "string" and row[3] ~= "") and (kind[3] .. row[3]) or nil}
+            end
+        end
+        -- Anything the game has that the site doesn't list yet.
+        pcall(function()
+            local folder = kind[1] == "finishers"
+                and game:GetService("ReplicatedStorage").Modules.Finishers
+                or game:GetService("Players").LocalPlayer.PlayerScripts.Assets.Charms
+            for _, m in ipairs(folder:GetChildren()) do
+                if not seen[m.Name] and not m.Name:find("MISSING_", 1, true) then
+                    local item = gameItems[m.Name] or {}
+                    out[kind[1]][#out[kind[1]] + 1] = {name = m.Name, rarity = item.rarity, src = gamePic(item), new = true}
+                    newCount = newCount + 1
+                end
+            end
+        end)
+        table.sort(out[kind[1]], function(a, b) return a.name < b.name end)
+    end
+    table.sort(out.wraps, function(a, b) return a.name < b.name end)
+
+    local okSky, skies = pcall(function() return decode(fetch(SITE .. "assets/skyboxes.json")) end)
+    for name, face in pairs(SKY_FACES) do out.skyFaces[name] = face end
+    for _, sky in ipairs(okSky and type(skies) == "table" and skies.skyboxes or {}) do
+        if type(sky.name) == "string" and type(sky.faces) == "table" and sky.faces.ft then
+            out.skyFaces[sky.name:lower()] = tostring(sky.faces.ft)
+        end
+    end
+    _G.__RSC_CRUMB("GUI: lists done, " .. newCount .. " new")
+    out.readGame, out.newCount = catalog.readGame, newCount
+    catalog = out
+    if not state.weapon and #catalog.weapons > 0 then state.weapon = catalog.weapons[1].name end
+    state.status = okMap and string.format("%d weapons, %d wraps, %d finishers, %d charms",
+        #catalog.weapons, #catalog.wraps, #catalog.finishers, #catalog.charms)
+        .. (newCount > 0 and (" - " .. newCount .. " new from the game, marked NEW") or "")
+        or "The site is unreachable - pictures and skin lists are missing."
+end
+
+-- Running the changer
+
+local function currentContext()
+    local ok, result = pcall(function()
+        if tonumber(game.GameId) ~= RIVALS_GAME_ID or not game:IsLoaded() then return nil end
+        local jobId = game.JobId
+        if type(jobId) ~= "string" or jobId == "" then return nil end
+        local weapons = game:GetService("Players").LocalPlayer.PlayerScripts.Assets.ViewModels.Weapons
+        if not weapons or not weapons.Address or #weapons:GetChildren() == 0 then return nil end
+        return {key = jobId .. ":" .. tostring(weapons.Address), wf = weapons.Address}
+    end)
+    return ok and result or nil
+end
+local function upstreamBusy()
+    -- Only a run in this server counts: Matcha keeps _G across teleports, and
+    -- a run cut off by one never clears its stamp.
+    local stamp, job = _G.__RIVALS_SKIN_CHANGER_BUSY, _G.__RIVALS_SKIN_CHANGER_BUSY_JOB
+    return type(stamp) == "number" and tick() - stamp < 180 and (job == nil or job == game.JobId)
+end
+local function changerSource()
+    for _, p in ipairs(SCRIPT_FILES) do
+        local ok, exists = pcall(isfile, p)
+        if ok and exists then
+            local okRead, body = pcall(readfile, p)
+            if okRead and type(body) == "string" and #body > 0 then return body, p end
+        end
+    end
+    return fetch(SCRIPT_URL), "github"
+end
+-- panic: runs the changer on an empty config instead of the saved one, so
+-- everything goes back to the game's own look; the config file is untouched.
+local function apply(panic)
+    local context = currentContext()
+    assert(context, "Wait for Rivals and its weapon assets to finish loading.")
+    assert(not upstreamBusy(), "The changer is already running.")
+    if not panic then saveConfig() end
+    state.status = panic and "Putting the game's look back..." or "Applying..."
+    _G.__RSC_SAFE = (state.safeMode or state.safeOnce) or nil
+    state.safeOnce = nil
+    _G.__RSC_FPS = state.fpsMode or nil
+    _G.__RSC_NOTIFY = ({"all", "errors", "off"})[state.notify] or "all"
+    _G.__RSC_NOTIFY_STYLE = ({"both", "matcha", "roblox"})[state.notifyStyle] or "both"
+    _G.__RSC_PROGRESS = {0, "Starting"}
+    _G.__RSC_CONFIG_OVERRIDE = panic and "-- panic" or nil
+    local applying = state.readable and configText() or nil
+    -- Incremental apply (adapted from the WilliamO2025 fork): when the engine
+    -- already ran in this server, it applies only what changed since then.
+    local previous = _G.__RIVALS_SKIN_CHANGER_STATE
+    if previous and previous.wfAddr == context.wf and previous.jobId == game.JobId
+        and previous.deltaVersion == "4.1" and type(previous.applyChanges) == "function" then
+        _G.__RSC_CONFIG_OVERRIDE, _G.__RSC_QUICK = nil, nil
+        local ok, message = pcall(previous.applyChanges, panic and "-- panic" or applying)
+        assert(ok, message)
+        _G.__RSC_PROGRESS = {100, "Done"}
+        _G.__RivalsGuiAutoApplied = context.key
+        state.status = panic and "Game look restored. Save & Apply brings your changes back." or tostring(message or "Changes applied.")
+        return
+    end
+    local source, from = changerSource()
+    local fn, err = loadstring(source)
+    assert(type(fn) == "function", err or "Could not compile the changer.")
+    local before = _G.__RIVALS_SKIN_CHANGER_STATE
+    fn()
+    local deadline = tick() + 150
+    while tick() < deadline do
+        local now = currentContext()
+        if not now or now.key ~= context.key then
+            state.status = "Server changed while applying - run it again."
+            return
+        end
+        local finished = _G.__RIVALS_SKIN_CHANGER_STATE
+        if type(finished) == "table" and finished ~= before and finished.wfAddr == context.wf and not upstreamBusy() then
+            state.appliedKey, state.appliedText, state.appliedSafe = (not panic) and context.key or nil, applying, state.safeMode
+            state.status = panic and "Game look restored. Save & Apply brings your changes back."
+                or ("Applied (" .. from .. ")" .. (_G.__RSC_LAST_QUICK and ", quick" or "") .. ". Respawn to see new effects.")
+            return
+        end
+        state.status = "Applying... (a few seconds)"
+        task.wait(0.5)
+    end
+    error("The changer did not finish within 150s. Check the Matcha console.")
+end
+local function job(label, fn)
+    if shared.busy then return end
+    shared.busy, state.status = true, label
+    task.spawn(function()
+        local ok, err = pcall(fn)
+        shared.busy = false
+        if not ok then
+            state.status = "Error: " .. tostring(err):gsub("^.-:%d+: ", ""):sub(1, 90)
+            print("[Rivals GUI] " .. tostring(err))
+        end
+    end)
+end
+
+-- Sound preview: the equip sounds briefly become the picked sound (see
+-- RivalsSkinGui.lua for how the strings are found).
+local PREVIEW_SECONDS = 10
+local DEFAULT_SOUNDS = {Hit = "13110130082", Critical = "16537449730", Kill = "16530229616"}
+local previewing = false
+local function rdq(a) local ok, v = pcall(memory_read, "uintptr_t", a) return ok and v or nil end
+local function rdi(a) local ok, v = pcall(memory_read, "int", a) return ok and v or nil end
+local function readLuaString(ts) local ok, v = pcall(memory_read, "string", ts + 24) return ok and v or nil end
+local function writeLuaString(ts, text)
+    for i = 1, #text do memory_write("byte", ts + 24 + i - 1, string.byte(text, i)) end
+    memory_write("byte", ts + 24 + #text, 0)
+    memory_write("int", ts + 20, #text)
+end
+local function equipSoundStrings()
+    local modules = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+    local ms = modules and modules:FindFirstChild("SoundLibrary")
+    local thread = ms and rdq(ms.Address + modThreadOff(ms))
+    -- The layout the changer found; without it, one of the two known builds,
+    local lay = _G.__RSC_LAYOUT
+    if not lay or not lay.array then
+        if detectLayout and ms then lay = detectLayout(ms) end
+    end
+    if not lay or not lay.array then
+        local okB, b0 = pcall(memory_read, "byte", thread or 0)
+        local okB2, b2 = pcall(memory_read, "byte", (thread or 0) + 2)
+        lay = (okB2 and b2 == 10) and {globalState = 0x78, registry = 0x618, lsize = 6, sizearray = 8, array = 0x18, node = 0x20}
+            or (okB and b0 == 10) and {globalState = 0x18, registry = 0x620, lsize = 5, sizearray = 8, array = 0x18, node = 0x10}
+            or {globalState = 0x68, registry = 0x620, lsize = 4, sizearray = 8, array = 0x20, node = 0x18}
+    end
+    local g = thread and rdq(thread + lay.globalState)
+    local reg = g and rdq(g + lay.registry)
+    local slot, arr = ms and rdi(ms.Address + modSlotOff(ms)), reg and rdq(reg + lay.array)
+    local t = arr and slot and slot > 0 and rdq(arr + (slot - 1) * 16)
+    if not t then return {} end
+    local base = rdq(t + lay.node)
+    local okL, l = pcall(memory_read, "byte", t + lay.lsize)
+    if not base or not okL or l > 12 then return {} end
+    for i = 0, 2 ^ l - 1 do
+        local node = base + i * 32
+        local key = rdq(node + 16)
+        if key and readLuaString(key) == "EquipSounds" then
+            local list = rdq(node)
+            local size, items = list and rdi(list + lay.sizearray), list and rdq(list + lay.array)
+            local out = {}
+            for j = 0, (size or 0) - 1 do
+                local ts = rdq(items + j * 16)
+                local text = ts and readLuaString(ts)
+                if text and text:find("^rbxassetid://%d+$") then out[#out + 1] = ts end
+            end
+            return out
+        end
+    end
+    return {}
+end
+local function previewSound(id)
+    if previewing then return "Already on - switch weapons to hear it." end
+    local digits = id and tostring(id):match("(%d+)$")
+    if not digits then return "That one is muted - nothing to play." end
+    local text = "rbxassetid://" .. digits
+    if #text > 31 then return "That id is too long to preview." end
+    local strings = equipSoundStrings()
+    if #strings == 0 then return "Preview not available right now." end
+    local saved = {}
+    for _, ts in ipairs(strings) do
+        saved[#saved + 1] = {ts, readLuaString(ts)}
+        writeLuaString(ts, text)
+    end
+    previewing = true
+    task.spawn(function()
+        task.wait(PREVIEW_SECONDS)
+        for _, s in ipairs(saved) do
+            if readLuaString(s[1]) == text then writeLuaString(s[1], s[2]) end
+        end
+        previewing = false
+    end)
+    return "Switch weapons (1-4) in the next " .. PREVIEW_SECONDS .. " s to hear it."
+end
+
+-- Pictures: downloaded one at a time, newest request first so what's on
+-- screen loads before what was scrolled past. The bytes are kept per file;
+-- each place a picture is drawn gets its own Image object, so one texture can
+-- show on several tiles at once.
+
+local images, imageQueue, imageWorker = {}, {}, false
+local imageObjects = {}
+local function cachePath(path) return CACHE .. "/" .. path:gsub("[^%w%-_%.]", "_") .. ".dat" end
+local function loadImage(path)
+    local file = cachePath(path)
+    local okHas, has = pcall(isfile, file)
+    if okHas and has then
+        local okRead, body = pcall(readfile, file)
+        if okRead and type(body) == "string" and #body > 8 then return body end
+    end
+    local ok, body = pcall(fetch, path:find("^https?://") and path or (SITE .. path))
+    if not ok or type(body) ~= "string" or body:sub(2, 4) ~= "PNG" then return nil end
+    pcall(writefile, file, body)
+    return body
+end
+local function requestImage(path)
+    local e = images[path]
+    if e then return e end
+    e = {state = "queued"}
+    images[path] = e
+    imageQueue[#imageQueue + 1] = path
+    if not imageWorker then
+        imageWorker = true
+        pcall(makefolder, CACHE)
+        task.spawn(function()
+            while #imageQueue > 0 and _G.__RivalsGuiSession == guiToken do
+                local p = table.remove(imageQueue)
+                local ok, data = pcall(loadImage, p)
+                images[p].data = ok and data or nil
+                images[p].state = images[p].data and "ok" or "failed"
+                task.wait()
+            end
+            imageWorker = false
+        end)
+    end
+    return e
+end
+
+-- Drawing: a pool per kind, reused frame to frame; each object only gets a
+-- property written when it changed.
+
+local V2, RGB = Vector2.new, Color3.fromRGB
+local FONT = (Drawing.Fonts and (Drawing.Fonts.System or Drawing.Fonts.UI)) or 1
+local FONT_BOLD = (Drawing.Fonts and Drawing.Fonts.SystemBold) or FONT
+local C = {
+    bg = RGB(15, 16, 21), bar = RGB(19, 20, 27), panel = RGB(22, 24, 31), card = RGB(29, 31, 40),
+    cardHover = RGB(37, 40, 52), line = RGB(44, 47, 60), text = RGB(226, 229, 236), dim = RGB(138, 144, 160),
+    faint = RGB(90, 96, 112), good = RGB(80, 210, 120), bad = RGB(240, 90, 90),
+}
+-- The accent and the shades made from it; picked in Settings.
+local ACCENTS = {"568cff", "8b5cf6", "ec4899", "ef4444", "f97316", "eab308", "22c55e", "14b8a6", "06b6d4", "e5e7eb"}
+local function applyAccent(hex)
+    local ok, c = pcall(Color3.fromHex, "#" .. tostring(hex))
+    if not ok or not c then c = Color3.fromHex("#" .. DEFAULT_ACCENT) end
+    C.accent = c
+    C.accentDim = Color3.new(c.R * 0.42, c.G * 0.42, c.B * 0.42)
+    C.accentHot = Color3.new(math.min(1, c.R + 0.08), math.min(1, c.G + 0.08), math.min(1, c.B + 0.08))
+    -- Dark text on light accents so labels stay readable.
+    local light = 0.299 * c.R + 0.587 * c.G + 0.114 * c.B > 0.62
+    C.onAccent = light and RGB(20, 22, 28) or RGB(255, 255, 255)
+end
+applyAccent(state.accent)
+-- Opacity of everything drawn this frame; the open/close animation lowers it.
+local Fade = 1
+local Pool, Cache, Used = {sq = {}, tx = {}, ln = {}, ci = {}}, {sq = {}, tx = {}, ln = {}, ci = {}}, {sq = 0, tx = 0, ln = 0, ci = 0}
+local CLASS = {sq = "Square", tx = "Text", ln = "Line", ci = "Circle"}
+local shownImages, drawnImages = {}, {}
+
+local function take(kind)
+    local i = Used[kind] + 1
+    Used[kind] = i
+    local obj = Pool[kind][i]
+    if not obj then
+        obj = Drawing.new(CLASS[kind])
+        Pool[kind][i], Cache[kind][i] = obj, {}
+        if kind == "tx" then pcall(function() obj.Outline = false end) end
+    end
+    return obj, Cache[kind][i]
+end
+local function put(o, c, k, v) if c[k] ~= v then c[k] = v; o[k] = v end end
+local function place(o, c, k, x, y)
+    if c[k .. "x"] ~= x or c[k .. "y"] ~= y then c[k .. "x"], c[k .. "y"] = x, y; o[k] = V2(x, y) end
+end
+local function rect(x, y, w, h, color, z, corner, alpha)
+    if w <= 0 or h <= 0 then return end
+    local o, c = take("sq")
+    place(o, c, "Position", x, y) place(o, c, "Size", w, h)
+    put(o, c, "Color", color) put(o, c, "Filled", true) put(o, c, "Corner", corner or 0)
+    put(o, c, "ZIndex", z or 1) put(o, c, "Transparency", (alpha or 1) * Fade) put(o, c, "Visible", true)
+end
+local function border(x, y, w, h, color, z, corner, thick)
+    local o, c = take("sq")
+    place(o, c, "Position", x, y) place(o, c, "Size", w, h)
+    put(o, c, "Color", color) put(o, c, "Filled", false) put(o, c, "Thickness", thick or 1)
+    put(o, c, "Corner", corner or 0) put(o, c, "ZIndex", z or 1) put(o, c, "Transparency", Fade) put(o, c, "Visible", true)
+end
+-- Width of a string as Matcha lays it out (its TextBounds), remembered per
+-- string; an estimate if that isn't available.
+local measurer, widths, widthCount = nil, {}, 0
+local function textWidth(s, size, bold)
+    s = tostring(s)
+    local key = s .. "\1" .. size .. (bold and "b" or "")
+    local known = widths[key]
+    if known then return known end
+    local ok, w = pcall(function()
+        measurer = measurer or Drawing.new("Text")
+        measurer.Visible = false
+        measurer.Size, measurer.Font, measurer.Text = size, bold and FONT_BOLD or FONT, s
+        return measurer.TextBounds.X
+    end)
+    w = (ok and type(w) == "number" and w > 0) and w or #s * size * 0.58
+    if widthCount > 4000 then widths, widthCount = {}, 0 end
+    widths[key], widthCount = w, widthCount + 1
+    return w
+end
+-- Fitting a text measures it several times; the result is kept (2048 at
+-- most) since the same labels are drawn every frame.
+local fitText
+do
+    local cache, count = {}, 0
+    fitText = function(s, room, size, bold)
+        s = tostring(s)
+        local key = s .. "\1" .. tostring(room) .. "\1" .. tostring(size) .. (bold and "b" or "")
+        local hit = cache[key]
+        if hit then return hit end
+        local out = s
+        if textWidth(s, size, bold) > room then
+            local lo, hi = 0, #s
+            while lo < hi do
+                local mid = math.floor((lo + hi + 1) / 2)
+                if textWidth(s:sub(1, mid) .. "..", size, bold) <= room then lo = mid else hi = mid - 1 end
+            end
+            out = s:sub(1, math.max(1, lo)) .. ".."
+        end
+        if count >= 2048 then cache, count = {}, 0 end
+        cache[key], count = out, count + 1
+        return out
+    end
+end
+local function text(s, x, y, color, size, z, bold, center)
+    s = tostring(s)
+    if s == "" then return end
+    local o, c = take("tx")
+    size = size or 13
+    put(o, c, "Text", s) put(o, c, "Size", size) put(o, c, "Font", bold and FONT_BOLD or FONT)
+    -- Matcha draws text higher than its position by about a third of the size;
+    -- this puts the letters where the layout expects them.
+    put(o, c, "Center", center and true or false) place(o, c, "Position", math.floor(x + 0.5), math.floor(y + size * 0.3 + 0.5))
+    put(o, c, "Color", color) put(o, c, "ZIndex", z or 5) put(o, c, "Transparency", Fade) put(o, c, "Visible", true)
+end
+local function line(x1, y1, x2, y2, color, z, thick)
+    local o, c = take("ln")
+    place(o, c, "From", x1, y1) place(o, c, "To", x2, y2)
+    put(o, c, "Color", color) put(o, c, "Thickness", thick or 1) put(o, c, "ZIndex", z or 5)
+    put(o, c, "Transparency", Fade) put(o, c, "Visible", true)
+end
+local function circle(x, y, r, color, z, filled, thick)
+    local o, c = take("ci")
+    place(o, c, "Position", x, y) put(o, c, "Radius", r) put(o, c, "Color", color)
+    put(o, c, "Filled", filled and true or false) put(o, c, "Thickness", thick or 1)
+    pcall(put, o, c, "NumSides", 32) put(o, c, "ZIndex", z or 5) put(o, c, "Transparency", Fade) put(o, c, "Visible", true)
+end
+-- A picture from the site; false while it downloads. `key` names the spot it
+-- is drawn in when the same file shows more than once.
+local function picture(path, x, y, w, h, z, key, alpha)
+    if not path then return false end
+    local e = requestImage(path)
+    if e.state ~= "ok" then return false end
+    key = key or path
+    local slot = imageObjects[key]
+    if not slot or slot.path ~= path then
+        -- Decoding is native work inside Matcha: one picture every 0.08 s at
+        -- most, and none while the changer runs (a join with an apply and a
+        -- grid of pictures decoding at once is the likeliest Matcha crash).
+        if shared.busy or upstreamBusy() or tick() < (shared.decodeAt or 0) then return false end
+        shared.decodeAt = tick() + 0.08
+        if slot then pcall(function() slot.obj:Remove() end) end
+        local obj = Drawing.new("Image")
+        obj.Visible = false
+        local okData = pcall(function() obj.Data = e.data end)
+        if not okData then
+            pcall(function() obj:Remove() end)
+            imageObjects[key], e.state = nil, "failed"
+            return false
+        end
+        slot = {obj = obj, cache = {}, path = path}
+        imageObjects[key] = slot
+    end
+    local o, c = slot.obj, slot.cache
+    place(o, c, "Position", x, y) place(o, c, "Size", w, h)
+    put(o, c, "ZIndex", z or 4) put(o, c, "Transparency", (alpha or 1) * Fade)
+    if not c.Visible then c.Visible = true; o.Visible = true end
+    drawnImages[key] = slot
+    return true
+end
+local function beginFrame()
+    for k in pairs(Used) do Used[k] = 0 end
+    drawnImages = {}
+end
+local function endFrame()
+    for kind, list in pairs(Pool) do
+        for i = Used[kind] + 1, #list do
+            local c = Cache[kind][i]
+            if c and c.Visible ~= false then c.Visible = false; list[i].Visible = false end
+        end
+    end
+    for key, slot in pairs(shownImages) do
+        if not drawnImages[key] then slot.cache.Visible = false; slot.obj.Visible = false end
+    end
+    shownImages = drawnImages
+end
+local function wipe()
+    for kind, list in pairs(Pool) do
+        for _, o in ipairs(list) do pcall(function() o.Visible = false; o:Remove() end) end
+        Pool[kind], Cache[kind], Used[kind] = {}, {}, 0
+    end
+    for _, slot in pairs(imageObjects) do
+        pcall(function() slot.obj.Visible = false; slot.obj:Remove() end)
+    end
+    imageObjects, images = {}, {}
+    if measurer then pcall(function() measurer:Remove() end) measurer = nil end
+end
+
+-- Input: the mouse and the keyboard are polled every frame. A click counts on
+-- release, so pressing and dragging a list scrolls it instead.
+
+local mouse, mouseAt = nil, 0
+local M = {x = 0, y = 0, down = false, press = false, release = false, px = 0, py = 0, dragged = false, took = false, wheel = 0}
+pcall(function()
+    M.wheelConn = game:GetService("UserInputService").InputChanged:Connect(function(input)
+        pcall(function()
+            if state.open and tostring(input.UserInputType):match("MouseWheel$") then
+                local z = tonumber(input.Position.Z)
+                if z and z == z then M.wheel = math.max(-20, math.min(20, M.wheel + z)) end
+            end
+        end)
+    end)
+end)
+local keyState = {}
+local function keyHit(vk)
+    local ok, down = pcall(iskeypressed, vk)
+    down = ok and down == true
+    local was = keyState[vk]
+    keyState[vk] = down
+    return down and not was, down
+end
+local function readInput()
+    -- The player (and its mouse) is a new object after a server change.
+    if not mouse or tick() - mouseAt > 2 then
+        mouseAt = tick()
+        pcall(function() mouse = game:GetService("Players").LocalPlayer:GetMouse() end)
+    end
+    local ok = pcall(function() M.x, M.y = mouse.X, mouse.Y + (state.mouseOffset or 0) end)
+    if not ok then M.x, M.y = -1, -1 end
+    local active = not isrbxactive or isrbxactive() ~= false
+    local down = active and ismouse1pressed() == true
+    M.press = down and not M.down
+    M.release = M.down and not down
+    M.down = down
+    if M.press then M.px, M.py, M.dragged = M.x, M.y, false end
+    if M.down and (math.abs(M.x - M.px) > 5 or math.abs(M.y - M.py) > 5) then M.dragged = true end
+    M.took = false
+end
+local function over(x, y, w, h) return M.x >= x and M.x < x + w and M.y >= y and M.y < y + h end
+local function clicked(x, y, w, h)
+    if M.took or not M.release or M.dragged then return false end
+    if over(x, y, w, h) and M.px >= x and M.px < x + w and M.py >= y and M.py < y + h then
+        M.took = true
+        return true
+    end
+    return false
+end
+
+-- Text boxes: while one is focused, typing goes to it and not to the game.
+local TYPED = {}
+for i = 0, 25 do TYPED[0x41 + i] = {string.char(97 + i), string.char(65 + i)} end
+for i = 0, 9 do TYPED[0x30 + i] = {tostring(i), (")!@#$%^&*("):sub(i + 1, i + 1)} end
+TYPED[0x20] = {" ", " "} TYPED[0xBD] = {"-", "_"} TYPED[0xBE] = {".", ">"} TYPED[0xDE] = {"'", "\""}
+TYPED[0xBF] = {"/", "?"} TYPED[0xBA] = {";", ":"}
+local focus, backspaceAt = nil, 0
+local function typeInto(id)
+    local value = state.inputs[id] or ""
+    local shift = select(2, keyHit(0x10))
+    for vk, chars in pairs(TYPED) do
+        if keyHit(vk) then value = value .. chars[shift and 2 or 1] end
+    end
+    local bsHit, bsDown = keyHit(0x08)
+    if bsHit then value = value:sub(1, -2); backspaceAt = tick() + 0.45
+    elseif bsDown and tick() > backspaceAt then value = value:sub(1, -2); backspaceAt = tick() + 0.04 end
+    if keyHit(0x0D) or keyHit(0x1B) then focus = nil end
+    state.inputs[id] = value
+end
+local function textbox(id, x, y, w, h, placeholder)
+    local focused = focus == id
+    rect(x, y, w, h, focused and C.cardHover or C.card, 3, 5)
+    border(x, y, w, h, focused and C.accent or C.line, 3, 5)
+    local value = state.inputs[id] or ""
+    local blink = focused and (tick() % 1 < 0.5) and "|" or ""
+    if value == "" and not focused then
+        text(placeholder, x + w / 2, y + (h - 13) / 2, C.faint, 13, 5, false, true)
+    else
+        text(fitText(value, w - 20, 13) .. blink, x + 9, y + (h - 13) / 2, C.text, 13, 5)
+    end
+    if clicked(x, y, w, h) then focus = id end
+    return value
+end
+local function button(x, y, w, h, label, primary, disabled)
+    local hot = not disabled and over(x, y, w, h)
+    rect(x, y, w, h, primary and (hot and C.accentHot or C.accent) or (hot and C.cardHover or C.card), 3, 5)
+    if not primary then border(x, y, w, h, C.line, 3, 5) end
+    text(label, x + w / 2, y + (h - 13) / 2, disabled and C.faint or (primary and C.onAccent or C.text), 13, 5, primary, true)
+    return not disabled and clicked(x, y, w, h)
+end
+-- A row of choices; returns the index clicked.
+local function segmented(x, y, w, h, labels, selected)
+    rect(x, y, w, h, C.panel, 3, 6)
+    local each, picked = w / #labels, nil
+    for i, label in ipairs(labels) do
+        local bx = x + (i - 1) * each
+        if i == selected then
+            rect(bx + 2, y + 2, each - 4, h - 4, C.card, 3, 5)
+            line(bx + each * 0.3, y + h - 3, bx + each * 0.7, y + h - 3, C.accent, 5, 2)
+        end
+        text(label, bx + each / 2, y + (h - 13) / 2, i == selected and C.text or C.dim, 13, 5, i == selected, true)
+        if clicked(bx, y, each, h) then picked = i end
+    end
+    return picked
+end
+
+-- Scrolling in whole rows: drag the list, drag its bar, or PageUp/PageDown and
+-- the arrow keys while pointing at it.
+local function scroller(id, x, y, w, h, total, visible)
+    local maxFirst = math.max(0, total - visible)
+    local s = state.scroll[id] or {first = 0}
+    state.scroll[id] = s
+    if M.wheel ~= 0 and not M.down and over(x, y, w + 16, h) then
+        s.first = math.floor(s.first - M.wheel * 3)
+        M.wheel = 0
+    end
+    if over(x, y, w, h) then
+        if keyHit(0x22) or keyHit(0x28) then s.first = s.first + (keyState[0x22] and visible or 1) end
+        if keyHit(0x21) or keyHit(0x26) then s.first = s.first - (keyState[0x21] and visible or 1) end
+    end
+    if M.press and over(x, y, w, h) then s.grab, s.grabFirst = M.y, s.first end
+    if not M.down then s.grab = nil end
+    if s.grab and M.dragged then
+        local rowH = h / math.max(1, visible)
+        s.first = s.grabFirst - math.floor((M.y - s.grab) / rowH + 0.5)
+    end
+    s.first = math.max(0, math.min(maxFirst, s.first))
+    -- The bar: drag the thumb, or click above or below it to move a page.
+    -- (Matcha can't read the mouse wheel.)
+    if maxFirst > 0 then
+        local bx, bw = x + w + 4, 8
+        local barH = math.max(28, h * visible / total)
+        local barY = y + (h - barH) * s.first / maxFirst
+        local onBar = over(bx - 2, y, bw + 4, h)
+        rect(bx, y, bw, h, C.card, 3, 4)
+        if M.press and onBar then
+            if M.y >= barY and M.y <= barY + barH then
+                s.bar = M.y - barY
+            else
+                s.first = s.first + (M.y < barY and -visible or visible)
+                s.grab = nil
+            end
+            M.dragged = true
+        end
+        if not M.down then s.bar = nil end
+        if s.bar then
+            s.first = math.floor((M.y - s.bar - y) / math.max(1, h - barH) * maxFirst + 0.5)
+            s.grab = nil
+            M.dragged = true
+        end
+        s.first = math.max(0, math.min(maxFirst, s.first))
+        barY = y + (h - barH) * s.first / maxFirst
+        rect(bx, barY, bw, barH, s.bar and C.accent or (onBar and C.dim or C.faint), 4, 4)
+    end
+    return s.first
+end
+local function resetScroll(id) state.scroll[id] = {first = 0} end
+
+-- Pieces of the window
+
+local function matches(q, name) return q == "" or name:lower():find(q, 1, true) ~= nil end
+local function query(id) return trim(state.inputs[id] or ""):lower() end
+
+-- A list on the left: rows of names, one picked, a dot where something is set.
+local function sideList(id, x, y, w, h, items, selected, marked)
+    local rowH = 30
+    local visible = math.floor(h / rowH)
+    local first = scroller(id, x, y, w, h, #items, visible)
+    local picked
+    for i = first + 1, math.min(#items, first + visible) do
+        local name = items[i]
+        local ry = y + (i - first - 1) * rowH
+        local hot = over(x, ry, w, rowH - 4)
+        if name == selected then
+            rect(x, ry, w, rowH - 4, C.card, 3, 5)
+            rect(x, ry + 6, 2, rowH - 16, C.accent, 4, 1)
+        elseif hot then
+            rect(x, ry, w, rowH - 4, C.panel, 3, 5)
+        end
+        text(fitText(name, w - 30, 13), x + 12, ry + 6, name == selected and C.text or C.dim, 13, 5)
+        if marked and marked(name) then circle(x + w - 12, ry + (rowH - 4) / 2, 3, C.good, 5, true) end
+        if clicked(x, ry, w, rowH - 4) then picked = name end
+    end
+    if #items == 0 then text("Nothing matches.", x + 8, y + 6, C.faint, 13, 5) end
+    return picked
+end
+
+-- Favourites and recently used picks, kept in their own file, plus the order
+-- the picture grids show things in: favourites first, then by the sort picked
+-- above the grid (Default keeps the list's own order).
+local prefs = {file = "rivals_gui_lists.txt", favs = {}, recent = {}, sort = 1, rarity = 0, show = 1,
+    SHOWS = {"Everything", "Owned", "Favourites"},
+    SORTS = {"Default", "A-Z", "Rarity", "Recent"},
+    RARITIES = {"Common", "Rare", "Legendary", "Mythical", "Unique", "Genuine", "Custom"},
+    RANK = {Common = 1, Rare = 2, Legendary = 3, Mythical = 4, Unique = 5, Genuine = 6, Custom = 7}}
+function prefs.load()
+    local ok, body = pcall(readfile, prefs.file)
+    if not ok or type(body) ~= "string" then return end
+    for kind, name in body:gmatch("(%a+)=([^\r\n]+)") do
+        if kind == "fav" then prefs.favs[name] = true
+        elseif kind == "recent" and #prefs.recent < 12 then prefs.recent[#prefs.recent + 1] = name end
+    end
+end
+function prefs.save()
+    prefs.version = (prefs.version or 0) + 1
+    local out = {}
+    for name in pairs(prefs.favs) do out[#out + 1] = "fav=" .. name end
+    table.sort(out)
+    for _, name in ipairs(prefs.recent) do out[#out + 1] = "recent=" .. name end
+    pcall(writefile, prefs.file, table.concat(out, "\n") .. "\n")
+end
+function prefs.used(name)
+    for i = #prefs.recent, 1, -1 do if prefs.recent[i] == name then table.remove(prefs.recent, i) end end
+    table.insert(prefs.recent, 1, name)
+    prefs.recent[13] = nil
+    prefs.save()
+end
+-- The items as the grid shows them; "None" stays first. Callers build their
+-- lists every frame, so the result is reused while the list (by its names),
+-- the sort, the filters and the favourites are the same.
+prefs.version = 0
+function prefs.arrange(items)
+    local n = #items
+    local key = n .. "|" .. prefs.sort .. "|" .. prefs.rarity .. "|" .. prefs.show .. "|" .. prefs.version .. "|"
+        .. tostring(inventory ~= nil) .. "|" .. (n > 0 and (items[1].name .. "|" .. items[n].name .. "|" .. items[math.ceil(n / 2)].name) or "")
+    local c = prefs.cache
+    if c and c.key == key then
+        -- Same names in the same places: hand back these items in the cached order.
+        local byName = {}
+        for _, it in ipairs(items) do byName[it.name] = it end
+        local out = {}
+        for i, name in ipairs(c.names) do out[i] = byName[name] end
+        if #out == #c.names then return out end
+    end
+    local result = prefs.arrangeNow(items)
+    local names = {}
+    for i, it in ipairs(result) do names[i] = it.name end
+    prefs.cache = {key = key, names = names}
+    return result
+end
+function prefs.arrangeNow(items)
+    local want = prefs.RARITIES[prefs.rarity]
+    local recentAt = {}
+    for i, name in ipairs(prefs.recent) do recentAt[name] = i end
+    local out, keep = {}, {}
+    for i, it in ipairs(items) do
+        if it.none then keep[#keep + 1] = it
+        elseif (not want or it.rarity == want) and (prefs.show ~= 3 or prefs.favs[it.name])
+            and (prefs.show ~= 2 or it.own == nil or owns(it.name, it.own ~= true and it.own or nil)) then
+            out[#out + 1] = {it, i}
+        end
+    end
+    local sort = prefs.SORTS[prefs.sort]
+    table.sort(out, function(a, b)
+        local fa, fb = prefs.favs[a[1].name] and 1 or 0, prefs.favs[b[1].name] and 1 or 0
+        if fa ~= fb then return fa > fb end
+        if sort == "A-Z" and a[1].name ~= b[1].name then return a[1].name:lower() < b[1].name:lower() end
+        if sort == "Rarity" then
+            local ra, rb = prefs.RANK[a[1].rarity] or 0, prefs.RANK[b[1].rarity] or 0
+            if ra ~= rb then return ra > rb end
+        end
+        if sort == "Recent" then
+            local ra, rb = recentAt[a[1].name] or 99, recentAt[b[1].name] or 99
+            if ra ~= rb then return ra < rb end
+        end
+        return a[2] < b[2]
+    end)
+    for _, pair in ipairs(out) do keep[#keep + 1] = pair[1] end
+    return keep
+end
+
+-- A grid of tiles with pictures. Each item: {name, src, rarity, colors, none}.
+-- Above it: sort, rarity filter and favourites only. The dot in a tile's top
+-- left corner stars it as a favourite.
+local TILE_W, TILE_H = 104, 118
+local function tileGrid(id, x, y, w, h, items, isSelected, badge)
+    local sw = math.max(160, math.min(280, w - 246))
+    local srt = segmented(x, y, sw, 24, prefs.SORTS, prefs.sort)
+    if srt then prefs.sort = srt; resetScroll(id) end
+    local rated = false
+    for _, it in ipairs(items) do if it.rarity then rated = true break end end
+    if rated and button(x + sw + 8, y, 120, 24, prefs.RARITIES[prefs.rarity] or "All rarities") then
+        prefs.rarity = (prefs.rarity + 1) % (#prefs.RARITIES + 1); resetScroll(id)
+    end
+    -- Owned only counts where the items are things you can own.
+    local ownable = false
+    if inventory then for _, it in ipairs(items) do if it.own ~= nil then ownable = true break end end end
+    if prefs.show == 2 and not ownable then prefs.show = 1 end
+    if button(x + sw + (rated and 136 or 8), y, 110, 24, prefs.SHOWS[prefs.show], prefs.show > 1) then
+        prefs.show = prefs.show % 3 + 1
+        if prefs.show == 2 and not ownable then prefs.show = 3 end
+        resetScroll(id)
+    end
+    y, h = y + 32, h - 32
+    items = prefs.arrange(items)
+    local cols = math.max(1, math.floor((w + 8) / (TILE_W + 8)))
+    local rowsVisible = math.max(1, math.floor((h + 8) / (TILE_H + 8)))
+    local rows = math.ceil(#items / cols)
+    local first = scroller(id, x, y, w, h, rows, rowsVisible)
+    local gap = cols > 1 and (w - cols * TILE_W) / (cols - 1) or 0
+    local picked
+    for r = first, math.min(rows - 1, first + rowsVisible - 1) do
+        for col = 0, cols - 1 do
+            local item = items[r * cols + col + 1]
+            if item then
+                local tx = x + col * (TILE_W + gap)
+                local ty = y + (r - first) * (TILE_H + 8)
+                local sel = isSelected(item)
+                local hot = over(tx, ty, TILE_W, TILE_H)
+                rect(tx, ty, TILE_W, TILE_H, hot and C.cardHover or C.card, 3, 6)
+                if sel then border(tx, ty, TILE_W, TILE_H, C.accent, 6, 6, 2) end
+                local ix, iy, is = tx + 14, ty + 8, TILE_W - 28
+                if item.none then
+                    circle(tx + TILE_W / 2, iy + is / 2, 18, C.dim, 5, false, 2)
+                    line(tx + TILE_W / 2 - 12, iy + is / 2 + 12, tx + TILE_W / 2 + 12, iy + is / 2 - 12, C.dim, 5, 2)
+                elseif item.src and picture(item.src, ix, iy, is, is, 4) then
+                    -- The picture; the lines below draw stand-ins while it loads.
+                elseif item.colors and #item.colors > 0 then
+                    -- Like the game's wrap icon: the first part is the sheet,
+                    -- the second the band along the bottom, the third a corner.
+                    local cols, texs = item.colors, item.textures or {}
+                    local sheetH = math.floor(is * 0.68)
+                    local areas = {
+                        {ix, iy, is, sheetH},
+                        {ix, iy + sheetH, is, is - sheetH},
+                        {ix + is - 22, iy + sheetH - 22, 22, 22},
+                    }
+                    for k = 1, math.max(2, #cols) do
+                        local a = areas[k]
+                        local col3 = cols[k] or cols[1]
+                        if a and col3 then
+                            rect(a[1], a[2], a[3], a[4], col3, 4, 0)
+                            local tex = texs[k] or (cols[k] == nil and texs[1]) or nil
+                            if tex and not item.src then picture(tex, a[1], a[2], a[3], a[4], 5, "wrap:" .. item.name .. ":" .. k, 0.6) end
+                        end
+                    end
+                    border(ix, iy, is, is, C.line, 5, 0)
+                else
+                    text(item.src and "..." or "?", tx + TILE_W / 2, iy + is / 2 - 7, C.faint, 14, 5, false, true)
+                end
+                text(fitText(item.name, TILE_W - 10, 12), tx + TILE_W / 2, ty + TILE_H - 26, sel and C.text or C.dim, 12, 5, sel, true)
+                local rc = item.rarity and RARITY_COLORS[item.rarity]
+                if rc then rect(tx + 30, ty + TILE_H - 6, TILE_W - 60, 2, rc, 5, 1) end
+                local mark = badge and badge(item)
+                if item.new and not mark then
+                    rect(tx + TILE_W - 38, ty + 6, 32, 16, C.accent, 5, 9)
+                    text("NEW", tx + TILE_W - 22, ty + 7, C.onAccent, 11, 6, true, true)
+                end
+                if mark then
+                    rect(tx + TILE_W - 24, ty + 6, 18, 18, C.accent, 5, 9)
+                    text(mark, tx + TILE_W - 15, ty + 8, C.onAccent, 12, 6, true, true)
+                end
+                local fav = prefs.favs[item.name]
+                if not item.none and (fav or hot) then
+                    circle(tx + 13, ty + 13, 6, fav and C.accent or C.dim, 6, fav, 2)
+                end
+                if not item.none and clicked(tx + 3, ty + 3, 22, 22) then
+                    prefs.favs[item.name] = (not fav) or nil
+                    prefs.save()
+                elseif clicked(tx, ty, TILE_W, TILE_H) then
+                    picked = item
+                    if not item.none then prefs.used(item.name) end
+                end
+            end
+        end
+    end
+    if #items == 0 then
+        text(prefs.show == 3 and "No favourites here - click a tile's corner dot to star it." or "Nothing matches.",
+            x + 4, y + 6, C.faint, 13, 5)
+    end
+    return picked
+end
+
+local function weaponEntry(name)
+    for _, w in ipairs(catalog.weapons) do if w.name == name then return w end end
+end
+-- ownedFor: a weapon name, to list only the skins you own for it.
+local function skinItems(w, exclude, searchId, withNone, ownedFor)
+    local out = {}
+    if withNone then out[1] = {name = "None", none = true} end
+    local q = query(searchId)
+    local mine = ownedFor and ownedOnly()
+    for _, skin in ipairs(w and w.skins or {}) do
+        if skin ~= exclude and matches(q, skin)
+            and (not mine or owns(skin, ownedFor) or (state.swaps[ownedFor] or {})[skin] ~= nil) then
+            local info = w.info[skin] or {}
+            out[#out + 1] = {name = skin, src = info.src, rarity = info.rarity, own = w.name, new = info.new}
+        end
+    end
+    return out
+end
+local function swapCount(weapon)
+    local n = 0
+    for _ in pairs(state.swaps[weapon] or {}) do n = n + 1 end
+    return n
+end
+
+-- Tabs
+
+-- The main page: every weapon, grouped by slot like the game's loadout
+-- (Primary, Secondary, Melee, Utility; A-Z inside a slot). Each tile shows
+-- what the weapon looks like now.
+local SLOT_ORDER = {"Primary", "Secondary", "Melee", "Utility", "Other"}
+local function drawWeaponMain(x, y, w, h)
+    rect(x, y, w, h, C.panel, 2, 8)
+    text("Weapons", x + 16, y + 14, C.text, 15, 5, true)
+    local setCount = 0
+    for _, wpn in ipairs(catalog.weapons) do
+        if (state.values.skins or {})[wpn.name] or swapCount(wpn.name) > 0 then setCount = setCount + 1 end
+    end
+    text(setCount .. " changed  -  pick one to choose its skin", x + 16, y + 36, C.dim, 12, 5)
+    textbox("weaponSearch", x + w - 252, y + 14, 240, 28, "Search weapons or skins...")
+    if not catalog.loaded then text("Loading lists...", x + 16, y + 70, C.dim, 14, 5) return end
+
+    -- Slot tabs: All, then each slot that has a weapon.
+    local tabs = {"All"}
+    for _, slot in ipairs(SLOT_ORDER) do
+        for _, wpn in ipairs(catalog.weapons) do
+            if (wpn.slot or "Other") == slot then tabs[#tabs + 1] = slot break end
+        end
+    end
+    local tabIndex = 1
+    for i, t in ipairs(tabs) do if t == state.slotTab then tabIndex = i end end
+    local pickedTab = segmented(x + 12, y + 54, w - 24, 32, tabs, tabIndex)
+    if pickedTab and tabs[pickedTab] ~= tabs[tabIndex] then
+        state.slotTab = tabs[pickedTab]
+        resetScroll("weaponMain")
+    end
+    local only = tabs[pickedTab or tabIndex] ~= "All" and tabs[pickedTab or tabIndex] or nil
+
+    -- Rows: a header per slot, then its tiles.
+    local q = query("weaponSearch")
+    local gx, gw, gy, gh = x + 12, w - 30, y + 96, h - 104
+    local cols = math.max(1, math.floor((gw + 8) / (TILE_W + 8)))
+    local gap = cols > 1 and (gw - cols * TILE_W) / (cols - 1) or 0
+    local rows = {}
+    for _, slot in ipairs(only and {only} or SLOT_ORDER) do
+        local list = {}
+        for _, wpn in ipairs(catalog.weapons) do
+            if (wpn.slot or "Other") == slot then
+                local hit = matches(q, wpn.name)
+                if not hit then
+                    for _, skin in ipairs(wpn.skins) do if matches(q, skin) then hit = true break end end
+                end
+                if hit then list[#list + 1] = wpn end
+            end
+        end
+        if #list > 0 then
+            rows[#rows + 1] = {header = slot, count = #list}
+            for i = 1, #list, cols do
+                local row = {}
+                for k = i, math.min(#list, i + cols - 1) do row[#row + 1] = list[k] end
+                rows[#rows + 1] = {tiles = row}
+            end
+        end
+    end
+    local HEADER_H, ROW_H = 30, TILE_H + 8
+    local function height(row) return row.header and HEADER_H or ROW_H end
+    -- How many rows fit at the end decides how far the list scrolls.
+    local fitEnd, used = 0, 0
+    for i = #rows, 1, -1 do
+        used = used + height(rows[i])
+        if used > gh then break end
+        fitEnd = fitEnd + 1
+    end
+    local first = scroller("weaponMain", gx, gy, gw, gh, #rows, math.max(1, fitEnd))
+    local cy = gy
+    for i = first + 1, #rows do
+        local row = rows[i]
+        if cy + height(row) > gy + gh + 1 then break end
+        if row.header then
+            text(row.header:upper(), gx + 2, cy + 10, C.faint, 11, 5, true)
+            text(tostring(row.count), gx + 2 + textWidth(row.header:upper(), 11, true) + 14, cy + 10, C.faint, 11, 5)
+            line(gx + 110, cy + 16, gx + gw, cy + 16, C.line, 3, 1)
+        else
+            for col, wpn in ipairs(row.tiles) do
+                local tx = gx + (col - 1) * (TILE_W + gap)
+                local current = (state.values.skins or {})[wpn.name]
+                local swaps = swapCount(wpn.name)
+                local hot = over(tx, cy, TILE_W, TILE_H)
+                rect(tx, cy, TILE_W, TILE_H, hot and C.cardHover or C.card, 3, 6)
+                if current or swaps > 0 then border(tx, cy, TILE_W, TILE_H, C.accentDim, 6, 6, 2) end
+                local info = current and wpn.info[current]
+                local src = (info and info.src) or wpn.icon
+                local is = TILE_W - 28
+                if not picture(src, tx + 14, cy + 8, is, is, 4) then
+                    text(src and "..." or "?", tx + TILE_W / 2, cy + 8 + is / 2 - 7, C.faint, 14, 5, false, true)
+                end
+                text(fitText(wpn.name, TILE_W - 10, 12), tx + TILE_W / 2, cy + TILE_H - 32, C.text, 12, 5, true, true)
+                local sub = current or (swaps > 0 and (swaps .. " swap" .. (swaps == 1 and "" or "s")) or "Default")
+                text(fitText(sub, TILE_W - 10, 11), tx + TILE_W / 2, cy + TILE_H - 17,
+                    (current or swaps > 0) and C.accent or C.faint, 11, 5, false, true)
+                if clicked(tx, cy, TILE_W, TILE_H) then
+                    state.weapon, state.skinsView = wpn.name, "weapon"
+                    state.swapStep = state.swapOwned[wpn.name] and 2 or 1
+                    state.inputs.skinSearch = ""
+                    resetScroll("skinGrid")
+                end
+            end
+        end
+        cy = cy + height(row)
+    end
+    if #rows == 0 then text("No weapon or skin matches.", gx + 4, gy + 6, C.faint, 13, 5) end
+end
+
+local function drawSkins(x, y, w, h)
+    local wpn = state.skinsView == "weapon" and weaponEntry(state.weapon)
+    if not wpn then
+        state.skinsView = "main"
+        return drawWeaponMain(x, y, w, h)
+    end
+
+    -- One weapon's page
+    local rx, rw = x, w
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    local weapon = wpn.name
+    if button(rx + 12, y + 18, 72, 32, "< Back") or keyHit(0x1B) then
+        state.skinsView = "main"
+        focus = nil
+        return
+    end
+    rect(rx + 94, y + 12, 44, 44, C.card, 3, 6)
+    picture(wpn.icon, rx + 96, y + 14, 40, 40, 4)
+    text(weapon, rx + 148, y + 14, C.text, 15, 5, true)
+    local current = (state.values.skins or {})[weapon]
+    local sub = state.mode == "Switch" and ("Switch  -  " .. (current or "Default"))
+        or ("Swap  -  " .. swapCount(weapon) .. " set")
+    text(sub, rx + 148, y + 36, C.dim, 12, 5)
+    -- Your arms in first person, for this weapon.
+    if button(rx + rw - 366, y + 16, 142, 32, handsHidden(weapon) and "Hands: hidden" or "Hands: shown") then
+        toggleHands(weapon)
+    end
+    local modeAt = segmented(rx + rw - 212, y + 16, 200, 32, {"Switch", "Swap"}, state.mode == "Switch" and 1 or 2)
+    if modeAt then state.mode = modeAt == 1 and "Switch" or "Swap"; resetScroll("skinGrid") end
+
+    local gy = y + 68
+    if state.mode == "Switch" then
+        text("Pick what the default " .. weapon .. " looks like. Works without owning any skin.", rx + 14, gy, C.faint, 12, 5)
+        gy = gy + 22
+    else
+        -- 1: the skin you own, 2: what it looks like. Set pairs below.
+        local owned = state.swapOwned[weapon]
+        local target = owned and (state.swaps[weapon] or {})[owned]
+        local step = segmented(rx + 12, gy, rw - 24, 32,
+            {"1  You own: " .. fitText(owned or "pick", 150, 13), "2  Looks like: " .. fitText(target or (owned and "pick" or "-"), 150, 13)},
+            state.swapStep)
+        if step == 1 or (step == 2 and owned) then state.swapStep = step; resetScroll("skinGrid") end
+        gy = gy + 40
+        local cx = rx + 12
+        for o, t in pairs(state.swaps[weapon] or {}) do
+            local label = fitText(o .. "  >  " .. t, 220, 12)
+            local cw = textWidth(label, 12) + 34
+            if cx + cw > rx + rw - 12 then break end
+            rect(cx, gy, cw, 22, C.accentDim, 3, 11)
+            text(label, cx + 10, gy + 4, C.text, 12, 5)
+            text("x", cx + cw - 14, gy + 3, C.dim, 13, 5, true)
+            if clicked(cx + cw - 22, gy, 22, 22) then
+                setSwap(weapon, o, nil)
+            elseif clicked(cx, gy, cw - 22, 22) then
+                state.swapOwned[weapon], state.swapStep = o, 2
+            end
+            cx = cx + cw + 6
+        end
+        gy = gy + 28
+    end
+    textbox("skinSearch", rx + 12, gy, rw - 24, 28, "Search skins...")
+    gy = gy + 38
+    local gridH = y + h - gy - 30
+    local items
+    if state.mode == "Switch" then
+        items = skinItems(wpn, nil, "skinSearch", true)
+        local hit = tileGrid("skinGrid", rx + 12, gy, rw - 30, gridH, items, function(it)
+            if it.none then return current == nil end
+            return it.name == current
+        end)
+        if hit and hit.none then
+            setMapping("skins", weapon, nil)
+        elseif hit then
+            guarded(function() setMapping("skins", weapon, hit.name) end, hit.name)
+        end
+    elseif state.swapStep == 1 or not state.swapOwned[weapon] then
+        items = skinItems(wpn, nil, "skinSearch", false, weapon)
+        if #items == 0 and ownedOnly() and query("skinSearch") == "" then
+            text("You own no skins for this weapon. Settings > Lists shows every skin.", rx + 16, gy + 30, C.dim, 12, 5)
+        end
+        local hit = tileGrid("skinGrid", rx + 12, gy, rw - 30, gridH, items, function(it)
+            return it.name == state.swapOwned[weapon]
+        end, function(it) return (state.swaps[weapon] or {})[it.name] and ">" or nil end)
+        if hit then state.swapOwned[weapon], state.swapStep = hit.name, 2; resetScroll("skinGrid") end
+    else
+        local owned = state.swapOwned[weapon]
+        local target = (state.swaps[weapon] or {})[owned]
+        items = skinItems(wpn, owned, "skinSearch", true)
+        local hit = tileGrid("skinGrid", rx + 12, gy, rw - 30, gridH, items, function(it)
+            if it.none then return target == nil end
+            return it.name == target
+        end)
+        if hit and hit.none then
+            setSwap(weapon, owned, nil)
+        elseif hit then
+            guarded(function() setSwap(weapon, owned, hit.name) end, hit.name)
+        end
+    end
+    local count = #items - ((items[1] and items[1].none) and 1 or 0)
+    text(count .. " skin(s) for " .. weapon, rx + 14, y + h - 22, C.faint, 12, 5)
+end
+
+local COS_KINDS = {
+    {key = "wraps", label = "Wraps", section = "wraps"},
+    {key = "finishers", label = "Finishers", section = "finishers"},
+    {key = "charms", label = "Charms", section = "charms"},
+}
+local function drawCosmetics(x, y, w, h)
+    local kindIndex = 1
+    for i, k in ipairs(COS_KINDS) do if k.key == state.cosKind then kindIndex = i end end
+    local kind = COS_KINDS[kindIndex]
+    local list = catalog[kind.key] or {}
+    local values = state.values[kind.section] or {}
+
+    local lw = 210
+    rect(x, y, lw, h, C.panel, 2, 8)
+    local pickedKind = segmented(x + 8, y + 8, lw - 16, 30, {"Wraps", "Finishers", "Charms"}, kindIndex)
+    if pickedKind and pickedKind ~= kindIndex then
+        state.cosKind = COS_KINDS[pickedKind].key
+        resetScroll("cosOwned") resetScroll("cosGrid")
+        return
+    end
+    text("YOU OWN", x + 12, y + 48, C.faint, 11, 5, true)
+    local sid = "cosOwnSearch" .. kind.key
+    textbox(sid, x + 10, y + 66, lw - 20, 28, "Search...")
+    local names, q = {}, query(sid)
+    for _, item in ipairs(list) do if matches(q, item.name) and (values[item.name] ~= nil or not ownedOnly() or owns(item.name)) then names[#names + 1] = item.name end end
+    local owned = state.owned[kind.key]
+    local picked = sideList("cosOwned", x + 8, y + 102, lw - 22, h - 110, names, owned, function(n) return values[n] ~= nil end)
+    if picked then state.owned[kind.key] = picked; resetScroll("cosGrid") end
+    owned = state.owned[kind.key]
+
+    local rx, rw = x + lw + 12, w - lw - 12
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    if not owned then
+        text("Pick one you own on the left, then what it should look like.", rx + 16, y + 18, C.dim, 13, 5)
+        text("Saved as Owned=Target: the game shows the target wherever the owned one would be.", rx + 16, y + 40, C.faint, 12, 5)
+        return
+    end
+    local target = values[owned]
+    local season = target and target:match("^(Season %d+)%s")
+    text(owned, rx + 16, y + 14, C.text, 15, 5, true)
+    text("looks like  " .. (target or "itself"), rx + 16, y + 36, C.dim, 12, 5)
+    local gy = y + 62
+    if kind.key == "charms" and season then
+        -- Season charms hold every rank; one has to be picked.
+        local current = target:match("^Season %d+%s+(.+)$") or RANKS[1]
+        local ri = 1
+        for i, r in ipairs(RANKS) do if r == current then ri = i end end
+        text("Rank", rx + 16, gy + 7, C.dim, 13, 5)
+        if button(rx + 60, gy, 30, 28, "<") then
+            ri = math.max(1, ri - 1); state.rank[owned] = RANKS[ri]; setMapping("charms", owned, season .. " " .. RANKS[ri])
+        end
+        text(RANKS[ri], rx + 150, gy + 7, C.text, 13, 5, true, true)
+        if button(rx + 210, gy, 30, 28, ">") then
+            ri = math.min(#RANKS, ri + 1); state.rank[owned] = RANKS[ri]; setMapping("charms", owned, season .. " " .. RANKS[ri])
+        end
+        gy = gy + 38
+    end
+    local tsid = "cosTargetSearch" .. kind.key
+    textbox(tsid, rx + 12, gy, rw - 24, 28, "Search looks like...")
+    gy = gy + 38
+    local items, tq = {{name = "None", none = true}}, query(tsid)
+    -- Custom wraps built on the Wraps tab, listed like any other wrap.
+    if kind.key == "wraps" then
+        for n = 1, 3 do
+            local cw = state.values["customwrap" .. n]
+            local built = cw and next(cw) ~= nil
+            if matches(tq, "custom wrap " .. n) then
+                local colors = {}
+                for k = 1, 3 do
+                    local ok, c = pcall(Color3.fromHex, "#" .. tostring(built and (cw["Color" .. k] or cw.Color1) or "2a2d38"))
+                    if ok then colors[#colors + 1] = c end
+                end
+                items[#items + 1] = {name = "Custom Wrap " .. n, rarity = "Custom", colors = colors, unbuilt = not built, slot = n}
+            end
+        end
+    end
+    for _, item in ipairs(list) do
+        if item.name ~= owned and matches(tq, item.name) then item.own = true; items[#items + 1] = item end
+    end
+    local hit = tileGrid("cosGrid", rx + 12, gy, rw - 30, y + h - gy - 30, items, function(it)
+        if it.none then return target == nil end
+        return it.name == target or (season ~= nil and it.name == season)
+    end)
+    if hit then
+        if hit.unbuilt then
+            -- Nothing to wear yet: straight to its builder.
+            state.tab, state.miscTab, state.cwSlot = "Misc", 8, hit.slot
+            state.status = "Build Custom Wrap " .. hit.slot .. " here, then pick it in Cosmetics."
+        elseif hit.none then
+            setMapping(kind.section, owned, nil)
+        elseif kind.key == "charms" and hit.name:match("^Season %d+$") then
+            guarded(function() setMapping("charms", owned, hit.name .. " " .. (state.rank[owned] or RANKS[1])) end, hit.name)
+        else
+            guarded(function() setMapping(kind.section, owned, hit.name) end, hit.name)
+        end
+    end
+    local set = 0
+    for _ in pairs(values) do set = set + 1 end
+    text(set .. " " .. kind.label:lower() .. " set  -  " .. #list .. " in the list", rx + 14, y + h - 22, C.faint, 12, 5)
+end
+
+-- Every sky in one grid (the groups only existed because Matcha's own menu
+-- couldn't scroll a dropdown): the game's skies first, then the uploaded ones.
+local function drawVisuals(x, y, w, h)
+    if state.lightView then return SKY_GROUPS.drawLighting(x, y, w, h) end
+    if state.skyAdvanced then return SKY_GROUPS.drawAdvanced(x, y, w, h) end
+    local skyNow = ((state.values.skybox or {}).Preset or ""):lower()
+    local rx, rw = x, w
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    text("Skybox", rx + 16, y + 14, C.text, 15, 5, true)
+    local own = (state.values.skybox or {}).All or (state.values.skybox or {}).FT or (state.values.skybox or {}).BK
+    text(skyNow ~= "" and ("Now: " .. skyNow .. " (next map load)") or (own and "Now: your own sky (Advanced)") or "Now: the game's own sky",
+        rx + 16, y + 36, C.dim, 12, 5)
+    local lightNow = ((state.values.lighting or {}).Preset or ""):lower()
+    local li = lightNow == "dark" and 2 or (lightNow == "match" and 3 or 1)
+    text("Lighting", rx + rw - 290, y + 22, C.dim, 12, 5)
+    local l = segmented(rx + rw - 232, y + 14, 220, 30, {"Normal", "Dark", "Match sky"}, li)
+    if l then setMapping("lighting", "Preset", ({false, "dark", "match"})[l] or nil) end
+    if button(rx + rw - 400, y + 15, 100, 28, "Fine-tune") then state.lightView = true end
+    if button(rx + rw - 510, y + 15, 100, 28, "Advanced") then SKY_GROUPS.openAdvanced() end
+
+    textbox("skySearch", rx + 12, y + 56, rw - 24, 28, "Search skies...")
+    local q = query("skySearch")
+    local items = {}
+    if q == "" then items[1] = {name = "Off", none = true} end
+    for _, g in ipairs(SKY_GROUPS) do
+        for _, s in ipairs(g.skies) do
+            if matches(q, s) then
+                local face = catalog.skyFaces[s]
+                items[#items + 1] = {name = s, src = face and ("assets/images/skies/" .. face .. ".png") or nil,
+                    colors = (s == "gray" and {RGB(128, 128, 128)}) or (s == "black" and {RGB(8, 8, 10)})
+                        or nil}
+            end
+        end
+    end
+    local hit = tileGrid("skyGrid", rx + 12, y + 94, rw - 30, h - 104, items, function(it)
+        if it.none then return skyNow == "" end
+        return it.name == skyNow
+    end)
+    if hit then
+        -- Per-face ids from the site would win over the preset; drop them.
+        for _, key in ipairs({"All", "BK", "DN", "FT", "LF", "RT", "UP", "Force"}) do setMapping("skybox", key, nil) end
+        setMapping("skybox", "Preset", (not hit.none) and hit.name or nil)
+    end
+end
+
+-- Tracers: the colour of your shots, for every gun or one gun at a time,
+-- saved as the [Tracers] section. The game draws them, so they don't lag.
+local TRACER_COLORS = {
+    {"Red", "ff2d2d"}, {"Orange", "ff7a00"}, {"Gold", "ffc400"}, {"Yellow", "ffee00"}, {"Lime", "a6ff00"},
+    {"Green", "2dff5a"}, {"Mint", "00ffa6"}, {"Cyan", "00e5ff"}, {"Blue", "2d6bff"}, {"Purple", "8a2dff"},
+    {"Pink", "ff4fd8"}, {"White", "ffffff"},
+}
+local function hexColor(hex)
+    return RGB(tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16))
+end
+
+-- Advanced sky: your own Roblox image ids, one for all six faces or one per
+-- face, saved as [Skybox] All= or FT/BK/LF/RT/UP/DN=. The changer only writes
+-- images from its own skies unless Force=yes: an image the game can't load
+-- (a private or new upload) crashes Roblox on the next map load.
+SKY_GROUPS.FACES = {{"FT", "Front"}, {"BK", "Back"}, {"LF", "Left"}, {"RT", "Right"}, {"UP", "Up"}, {"DN", "Down"}}
+SKY_GROUPS.openAdvanced = function()
+    local v = state.values.skybox or {}
+    local function get(k) for key, val in pairs(v) do if key:upper() == k then return val end end end
+    state.inputs.skyAll = get("ALL") or ""
+    for _, f in ipairs(SKY_GROUPS.FACES) do state.inputs["sky" .. f[1]] = get(f[1]) or "" end
+    local force = tostring(get("FORCE") or ""):lower()
+    state.skyForce = force == "yes" or force == "true" or force == "on"
+    state.skyAdvanced, focus = true, nil
+end
+SKY_GROUPS.drawAdvanced = function(x, y, w, h)
+    rect(x, y, w, h, C.panel, 2, 8)
+    local cx = x + 20
+    text("Your own sky", cx, y + 14, C.text, 15, 5, true)
+    text("Roblox image ids (the number in the image's link). One for all six faces, or one per face.", cx, y + 36, C.dim, 12, 5)
+    if button(x + w - 120, y + 12, 100, 28, "< Sky") then state.skyAdvanced, focus = false, nil end
+    text("All faces", cx, y + 76, C.text, 13, 5)
+    textbox("skyAll", cx + 110, y + 68, 260, 30, "e.g. 10196550367")
+    local fw = math.floor((w - 40 - 2 * 16) / 3)
+    for i, f in ipairs(SKY_GROUPS.FACES) do
+        local col, row = (i - 1) % 3, math.floor((i - 1) / 3)
+        local fx, fy = cx + col * (fw + 16), y + 116 + row * 56
+        text(f[2], fx, fy, C.dim, 12, 5)
+        textbox("sky" .. f[1], fx, fy + 18, fw, 30, "Image id")
+    end
+    local fy = y + 236
+    text("Safety check", cx, fy + 8, C.text, 13, 5)
+    local fp = segmented(cx + 110, fy, 300, 30, {"Changer's skies only", "Force"}, state.skyForce and 2 or 1)
+    if fp then state.skyForce = fp == 2 end
+    text(state.skyForce and "Force: the ids are written as they are. An image the game can't load (a private or new upload)"
+        or "Ids that aren't from the changer's own skies are turned down, so a bad image can't crash the game.", cx, fy + 40, state.skyForce and C.accent or C.faint, 12, 5)
+    if state.skyForce then text("crashes Roblox on the next map load - use public images only.", cx, fy + 58, C.accent, 12, 5) end
+    local function id(k) return (trim(state.inputs[k] or "")):match("^(%d+)$") end
+    if button(cx, y + h - 50, 160, 32, "Use these", true) then
+        local all, faces, bad = id("skyAll"), {}, false
+        for _, f in ipairs(SKY_GROUPS.FACES) do
+            local raw = trim(state.inputs["sky" .. f[1]] or "")
+            faces[f[1]] = id("sky" .. f[1])
+            if raw ~= "" and not faces[f[1]] then bad = true end
+        end
+        if (trim(state.inputs.skyAll or "") ~= "" and not all) or bad then
+            state.status = "Use only the image's number, like 10196550367."
+        elseif not all and not next(faces) then
+            state.status = "Type an image id first."
+        else
+            for _, key in ipairs({"Preset", "All", "BK", "DN", "FT", "LF", "RT", "UP", "Force"}) do setMapping("skybox", key, nil) end
+            if all then setMapping("skybox", "All", all) end
+            for _, f in ipairs(SKY_GROUPS.FACES) do if faces[f[1]] then setMapping("skybox", f[1], faces[f[1]]) end end
+            if state.skyForce then setMapping("skybox", "Force", "yes") end
+            state.status = "Sky set - Save & Apply, then it shows on the next map load."
+        end
+    end
+    if button(cx + 172, y + h - 50, 120, 32, "Clear") then
+        for _, key in ipairs({"All", "BK", "DN", "FT", "LF", "RT", "UP", "Force"}) do setMapping("skybox", key, nil) end
+        state.inputs.skyAll = ""
+        for _, f in ipairs(SKY_GROUPS.FACES) do state.inputs["sky" .. f[1]] = "" end
+        state.skyForce = false
+    end
+end
+
+-- Lighting fine-tuning ([Lighting] Brightness, Exposure, Ambient, Outdoor),
+-- over the preset. A field of SKY_GROUPS: the GUI is at its local limit.
+SKY_GROUPS.drawLighting = function(x, y, w, h)
+    local values = state.values.lighting or {}
+    rect(x, y, w, h, C.panel, 2, 8)
+    local cx = x + 20
+    text("Lighting", cx, y + 14, C.text, 15, 5, true)
+    text("Fine-tune over the preset. Applied right away on Save & Apply and kept across map changes.", cx, y + 36, C.dim, 12, 5)
+    if button(x + w - 120, y + 12, 100, 28, "< Sky") then state.lightView = false end
+    -- A slider saved when you let go, so dragging doesn't re-apply each frame.
+    local function slider(key, label, sy, lo, hi, step, game)
+        local now = state.lightDrag == key and state.lightValue or tonumber(values[key])
+        text(label, cx, sy + 6, C.text, 14, 5, true)
+        local bx, bw = cx + 140, w - 380
+        local k = math.max(0, math.min(1, ((now or game) - lo) / (hi - lo)))
+        rect(bx, sy + 12, bw, 4, C.card, 3, 2)
+        rect(bx, sy + 12, math.max(1, bw * k), 4, now and C.accent or C.dim, 4, 2)
+        circle(bx + bw * k, sy + 14, 7, C.text, 5, true)
+        if M.press and over(bx - 8, sy, bw + 16, 28) then state.lightDrag = key end
+        if state.lightDrag == key then
+            if M.down then
+                local v = lo + (hi - lo) * math.max(0, math.min(1, (M.x - bx) / bw))
+                state.lightValue = math.floor(v / step + 0.5) * step
+                M.dragged = true
+            else
+                setMapping("lighting", key, string.format("%.2f", state.lightValue):gsub("0+$", ""):gsub("%.$", ""))
+                state.lightDrag, state.lightValue = nil, nil
+            end
+        end
+        text(now and string.format("%.2f", now) or "game's", bx + bw + 16, sy + 6, C.text, 13, 5)
+        if now and button(x + w - 120, sy, 100, 26, "Reset") then setMapping("lighting", key, nil) end
+    end
+    slider("Brightness", "Brightness", y + 70, 0, 6, 0.05, 2)
+    slider("Exposure", "Exposure", y + 112, -3, 3, 0.05, 0)
+    -- Colours: swatches (greys first, they suit lighting best) plus hex below.
+    local SHADES = {{"Black", "000000"}, {"Dim", "1e1e24"}, {"Grey", "4c5058"}, {"Light", "8c96a8"}, {"White", "ffffff"}}
+    local function colours(key, label, sy)
+        text(label, cx, sy + 6, C.text, 14, 5, true)
+        local now = tostring(values[key] or ""):gsub("^#", ""):lower()
+        local list = {}
+        for _, c in ipairs(SHADES) do list[#list + 1] = c end
+        for _, c in ipairs(TRACER_COLORS) do list[#list + 1] = c end
+        local sx, size = cx + 140, 22
+        for i, c in ipairs(list) do
+            local bx = sx + (i - 1) * (size + 5)
+            if bx + size > x + w - 130 then break end
+            rect(bx, sy + 2, size, size, hexColor(c[2]), 4, 5)
+            if now == c[2] then border(bx - 2, sy, size + 4, size + 4, C.text, 5, 6) end
+            if clicked(bx, sy + 2, size, size) then setMapping("lighting", key, c[2]) end
+        end
+        if now ~= "" and button(x + w - 120, sy, 100, 26, "Reset") then setMapping("lighting", key, nil) end
+    end
+    colours("Ambient", "Ambient", y + 160)
+    colours("Outdoor", "Outdoor ambient", y + 200)
+    local cy = y + 250
+    textbox("lightHex", cx, cy, w - 300, 30, "Any colour, like 3a2f5c")
+    for i, key in ipairs({"Ambient", "Outdoor"}) do
+        if button(x + w - 272 + (i - 1) * 126, cy, 120, 30, key == "Ambient" and "Ambient" or "Outdoor") then
+            local v = trim(state.inputs.lightHex or ""):gsub("^#", ""):lower()
+            if v:match("^%x%x%x%x%x%x$") then setMapping("lighting", key, v) else state.status = "Colours are 6 hex digits, like 3a2f5c" end
+        end
+    end
+    text("Ambient lights shadowed areas, outdoor ambient the open ones. Values left on the game's follow the preset.",
+        cx, y + h - 30, C.faint, 12, 5)
+end
+
+
+local function drawTracers(x, y, w, h)
+    local values = state.values.tracers or {}
+    local lw = 210
+    rect(x, y, lw, h, C.panel, 2, 8)
+    text("GUNS", x + 12, y + 10, C.faint, 11, 5, true)
+    textbox("tracerSearch", x + 10, y + 28, lw - 20, 28, "Search...")
+    local names, q = {}, query("tracerSearch")
+    if q == "" then names[1] = "All guns" end
+    for _, wpn in ipairs(catalog.weapons) do if matches(q, wpn.name) then names[#names + 1] = wpn.name end end
+    local picked = sideList("tracerGuns", x + 8, y + 64, lw - 22, h - 72, names, state.tracerGun or "All guns",
+        function(n)
+            if n == "All guns" then return values.Color ~= nil end
+            return values[n] ~= nil or values[n .. " Speed"] ~= nil
+        end)
+    if picked then
+        if picked ~= state.tracerGun then state.tracerDrag, state.tracerSpeed = nil, nil end
+        state.tracerGun = picked; resetScroll("tracerGrid")
+    end
+
+    local gun = state.tracerGun or "All guns"
+    local key = gun == "All guns" and "Color" or gun
+    local current = values[key] and tostring(values[key]):lower()
+    local rx, rw = x + lw + 12, w - lw - 12
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    text(gun == "All guns" and "Tracers - every gun" or ("Tracers - " .. gun), rx + 16, y + 14, C.text, 15, 5, true)
+    text("Now: " .. (current or (key == "Color" and "the game's own" or "same as All guns")), rx + 16, y + 36, C.dim, 12, 5)
+
+    local items = {{name = key == "Color" and "Game's own" or "Same as all", none = true},
+        {name = "Rainbow", value = "rainbow", colors = {RGB(255, 60, 60), RGB(60, 120, 255), RGB(255, 230, 0)}},
+        {name = "Match sky", value = "sky", colors = {RGB(196, 76, 255), RGB(102, 138, 255)}},
+        {name = "Match wrap", value = "wrap", colors = {RGB(255, 160, 44), RGB(230, 230, 230), RGB(40, 40, 40)}}}
+    for _, c in ipairs(TRACER_COLORS) do items[#items + 1] = {name = c[1], value = c[2], colors = {hexColor(c[2])}} end
+    local gy = y + 62
+    local hit = tileGrid("tracerGrid", rx + 12, gy, rw - 30, h - (gy - y) - 168, items, function(it)
+        if it.none then return current == nil end
+        return it.value == current
+    end)
+    if hit then setMapping("tracers", key, hit.value) end
+
+    -- Automatically adds a wrap-matched tracer when Keyper is equipped.
+    local ky = y + h - 158
+    local ktOn = tostring(values.KeyperTracer or ""):lower() == "true"
+    text("Keyper tracer", rx + 16, ky, C.dim, 13, 5)
+    text("Instantly adds a wrap-matched tracer when Keyper is equipped", rx + 16, ky + 16, C.faint, 11, 5)
+    local kt = segmented(rx + rw - 152, ky, 140, 28, {"Off", "On"}, ktOn and 2 or 1)
+    if kt then setMapping("tracers", "KeyperTracer", kt == 2 and "true" or nil) end
+
+    -- The game draws no tracers for the Energy Pistols; this turns them on.
+    local ey = y + h - 122
+    local epOn = tostring(values.EnergyPistolsTracers or ""):lower() == "true"
+    text("Energy Pistols tracers", rx + 16, ey, C.dim, 13, 5)
+    text("Not recommended with 50% speed or under", rx + 16, ey + 16, C.faint, 11, 5)
+    local ep = segmented(rx + rw - 152, ey, 140, 28, {"Off", "On"}, epOn and 2 or 1)
+    if ep then setMapping("tracers", "EnergyPistolsTracers", ep == 2 and "true" or nil) end
+
+    -- Speed: 100% is the game's own, low is slow like the Keyper. The All guns
+    -- page sets the default; a gun's page sets that gun's own (a stored 100
+    -- there means the game's own, not "same as All guns"). Saved when you let
+    -- go, so dragging doesn't re-apply every frame.
+    local sy = y + h - 84
+    local isAll = gun == "All guns"
+    local speedKey = isAll and "Speed" or (gun .. " Speed")
+    local own = tonumber(values[speedKey])
+    local sp = state.tracerSpeed or own or tonumber(values.Speed) or 100
+    text("Speed", rx + 16, sy + 6, C.dim, 13, 5)
+    local bx, bw = rx + 72, rw - 330
+    local t = (sp - 5) / 195
+    rect(bx, sy + 12, bw, 4, C.card, 3, 2)
+    rect(bx, sy + 12, math.max(1, bw * t), 4, C.accent, 4, 2)
+    circle(bx + bw * t, sy + 14, 7, C.text, 5, true)
+    if M.press and over(bx - 8, sy, bw + 16, 28) then state.tracerDrag = true end
+    if state.tracerDrag then
+        if M.down then
+            sp = math.floor((5 + 195 * math.max(0, math.min(1, (M.x - bx) / bw))) / 5 + 0.5) * 5
+            state.tracerSpeed = sp
+            M.dragged = true
+        else
+            state.tracerDrag, state.tracerSpeed = nil, nil
+            if isAll then
+                setMapping("tracers", speedKey, sp ~= 100 and tostring(sp) or nil)
+            else
+                setMapping("tracers", speedKey, tostring(sp))
+            end
+        end
+    end
+    local note
+    if isAll then
+        note = "  - default for every gun" .. (sp <= 25 and ", slow like the Keyper" or (sp == 100 and ", the game's own" or ""))
+    elseif own == nil and state.tracerSpeed == nil then
+        note = "  - same as All guns"
+    else
+        note = sp <= 25 and "  - slow, like the Keyper" or (sp == 100 and "  - the game's own" or "")
+    end
+    text(sp .. "%" .. note, bx + bw + 16, sy + 6, C.text, 13, 5)
+    if not isAll and own ~= nil and not state.tracerDrag then
+        if button(rx + rw - 82, sy, 70, 28, "Reset") then setMapping("tracers", speedKey, nil) end
+    end
+
+    local cy = y + h - 42
+    textbox("tracerHex", rx + 12, cy, rw - 140, 30, "Any colour, like ff66cc")
+    if button(rx + rw - 120, cy, 108, 30, "Use colour") then
+        local v = trim(state.inputs.tracerHex or ""):gsub("^#", ""):lower()
+        if v:match("^%x%x%x%x%x%x$") then setMapping("tracers", key, v) else state.status = "Colours are 6 hex digits, like ff66cc" end
+    end
+end
+
+-- Hands: your first-person arms, hidden on every weapon or one at a time,
+-- saved as the [NoHands] section. Only you see it.
+local function drawHands(x, y, w, h)
+    local allOn = tostring((state.values.nohands or {}).All or ""):lower() == "true"
+    local lw = 210
+    rect(x, y, lw, h, C.panel, 2, 8)
+    text("WEAPONS", x + 12, y + 10, C.faint, 11, 5, true)
+    textbox("handsSearch", x + 10, y + 28, lw - 20, 28, "Search...")
+    local names, q = {}, query("handsSearch")
+    if q == "" then names[1] = "Every weapon" end
+    for _, wpn in ipairs(catalog.weapons) do if matches(q, wpn.name) then names[#names + 1] = wpn.name end end
+    local picked = sideList("handsList", x + 8, y + 64, lw - 22, h - 72, names, state.handsFor or "Every weapon",
+        function(n)
+            if n == "Every weapon" then return allOn end
+            return handsHidden(n)
+        end)
+    if picked then state.handsFor = picked end
+
+    local who = state.handsFor or "Every weapon"
+    local every = who == "Every weapon"
+    local hiddenNow = every and allOn or (not every and handsHidden(who))
+    local rx, rw = x + lw + 12, w - lw - 12
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    text("Hands - " .. (every and "every weapon" or who), rx + 16, y + 14, C.text, 15, 5, true)
+    text("Now: " .. (hiddenNow and "hidden" or "shown") .. ((not every and allOn) and "  (every weapon is set to hidden)" or ""),
+        rx + 16, y + 36, C.dim, 12, 5)
+    local p = segmented(rx + 16, y + 64, 260, 32, {"Shown", "Hidden"}, hiddenNow and 2 or 1)
+    if p and (p == 2) ~= hiddenNow then
+        if every then setMapping("nohands", "All", p == 2 and "true" or nil) else toggleHands(who) end
+    end
+    text("Your arms in first person are hidden while that weapon is out.", rx + 16, y + 112, C.dim, 12, 5)
+    text("The weapon still moves as if held. Only you see it.", rx + 16, y + 132, C.dim, 12, 5)
+    text("A green dot in the list marks a weapon whose hands are hidden.", rx + 16, y + 152, C.faint, 12, 5)
+    text("Shows from the next Save & Apply.", rx + 16, y + h - 26, C.faint, 12, 5)
+end
+
+local function drawSounds(x, y, w, h)
+    local lw = 184
+    rect(x, y, lw, h, C.panel, 2, 8)
+    text("LIBRARY", x + 12, y + 10, C.faint, 11, 5, true)
+    local groupNames = {"Basics"}
+    for _, g in ipairs(SOUND_LIBRARY) do groupNames[#groupNames + 1] = g.name end
+    local picked = sideList("soundGroups", x + 8, y + 30, lw - 22, h - 38, groupNames, groupNames[state.soundGroup])
+    if picked then
+        for i, n in ipairs(groupNames) do if n == picked then state.soundGroup = i end end
+        resetScroll("soundList")
+    end
+
+    local rx, rw = x + lw + 12, w - lw - 12
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    local slotLabels = {}
+    for _, s in ipairs(SOUND_SLOTS) do slotLabels[#slotLabels + 1] = s[2] end
+    local si = segmented(rx + 12, y + 12, 300, 30, slotLabels, state.soundSlot)
+    if si then state.soundSlot = si end
+    local key = SOUND_SLOTS[state.soundSlot][1]
+    local current = (state.values.sounds or {})[key]
+    local currentLow = current and tostring(current):lower()
+    if button(rx + rw - 132, y + 12, 120, 30, "Preview") then
+        state.status = previewSound(current or DEFAULT_SOUNDS[key])
+    end
+    text("Now: " .. (current or "game default"), rx + 16, y + 52, C.dim, 12, 5)
+
+    local rows = {}
+    if state.soundGroup == 1 then
+        rows = {{"Game default", nil}, {"Mute", "none"}}
+    else
+        for _, s in ipairs(SOUND_LIBRARY[state.soundGroup - 1].sounds) do rows[#rows + 1] = {s[1], s[2]} end
+    end
+    local ly, lh, rowH = y + 76, h - 76 - 50, 30
+    local visible = math.floor(lh / rowH)
+    local first = scroller("soundList", rx + 12, ly, rw - 30, lh, #rows, visible)
+    for i = first + 1, math.min(#rows, first + visible) do
+        local row = rows[i]
+        local ry = ly + (i - first - 1) * rowH
+        local sel = (row[2] == nil and current == nil) or (row[2] ~= nil and row[2] == currentLow)
+        rect(rx + 12, ry, rw - 30, rowH - 4, sel and C.card or (over(rx + 12, ry, rw - 30, rowH - 4) and C.cardHover or C.panel), 3, 5)
+        if sel then rect(rx + 12, ry + 6, 2, rowH - 16, C.accent, 4, 1) end
+        text(row[1], rx + 24, ry + 6, sel and C.text or C.dim, 13, 5, sel)
+        if row[2] then text(row[2], rx + rw - 40 - textWidth(row[2], 12), ry + 7, C.faint, 12, 5) end
+        if clicked(rx + 12, ry, rw - 30, rowH - 4) then setMapping("sounds", key, row[2]) end
+    end
+    local cy = y + h - 42
+    textbox("customSound", rx + 12, cy, rw - 140, 30, "Custom audio id")
+    if button(rx + rw - 120, cy, 108, 30, "Use id") then
+        local v = trim(state.inputs.customSound or "")
+        if v ~= "" then setMapping("sounds", key, v) end
+    end
+end
+
+-- Spoof: your name, level, streak and badges as you see them, saved as the
+-- [Spoof] section; the changer shows them from the next Save & Apply. Only you
+-- see them, except the device, which the server is told.
+local SPOOF_FIELDS = {
+    {key = "Name", label = "Display name", hint = "Your display name"},
+    {key = "Username", label = "@Username", hint = "Not longer than your real one"},
+    {key = "Level", label = "Level", number = true},
+    {key = "Streak", label = "Win streak", number = true},
+    {key = "ELO", label = "ELO", number = true},
+}
+local SPOOF_BADGES = {{"Influencer", "Influencer badge"}, {"Employee", "Roblox employee badge"}, {"Trustworthy", "Trustworthy"}}
+local DEVICE_CHOICES = {{"Real", nil}, {"PC", "MouseKeyboard"}, {"Mobile", "Touch"}, {"Controller", "Gamepad"}, {"VR", "VR"}}
+
+-- A text box tied to one [Spoof] key: it starts at the saved value and saves
+-- when you press Enter or click away.
+local function spoofBox(field, x, y, w)
+    local id = "spoof_" .. field.key
+    local saved = (state.values.spoof or {})[field.key] or ""
+    if state.inputs[id] == nil then state.inputs[id] = saved end
+    text(field.label, x, y, C.dim, 12, 5)
+    textbox(id, x, y + 18, w, 30, field.hint or "Real")
+    if focus ~= id then
+        local v = trim(state.inputs[id] or "")
+        if field.number and v ~= "" and not v:match("^%d+$") then
+            state.inputs[id] = saved -- digits only; keep what was there
+        elseif v ~= saved then
+            setMapping("spoof", field.key, v ~= "" and v or nil)
+        end
+    end
+end
+
+local function drawSpoof(x, y, w, h)
+    rect(x, y, w, h, C.panel, 2, 8)
+    local cx = x + 20
+    text("Spoof", cx, y + 14, C.text, 15, 5, true)
+    text("How your name and stats look to you. The server keeps the real ones. Empty = real.", cx, y + 36, C.dim, 12, 5)
+
+    local cy, colW = y + 60, math.floor((w - 60) / 2)
+    spoofBox(SPOOF_FIELDS[1], cx, cy, colW)
+    spoofBox(SPOOF_FIELDS[2], cx + colW + 20, cy, colW)
+    cy = cy + 62
+    local third = math.floor((w - 80) / 3)
+    for i = 3, 5 do spoofBox(SPOOF_FIELDS[i], cx + (i - 3) * (third + 20), cy, third) end
+    cy = cy + 62
+
+    local values = state.values.spoof or {}
+    -- The effect on your name: the game's gold (Prime) or purple (Contraband).
+    text("Name effect", cx, cy + 8, C.text, 13, 5)
+    local effectNow = (values.Effect or ""):lower()
+    local ei = (effectNow == "none" and 2) or (effectNow == "prime" and 3) or (effectNow == "contraband" and 4) or 1
+    local ep = segmented(x + w - 380, cy, 360, 30, {"Real", "None", "Prime", "Contraband"}, ei)
+    if ep and ep ~= ei then setMapping("spoof", "Effect", ({false, "none", "prime", "contraband"})[ep] or nil) end
+    cy = cy + 36
+    for _, badge in ipairs(SPOOF_BADGES) do
+        text(badge[2], cx, cy + 8, C.text, 13, 5)
+        local now = (values[badge[1]] or ""):lower()
+        local idx = (now == "true" and 2) or (now == "false" and 3) or 1
+        local pick = segmented(x + w - 260, cy, 240, 30, {"Real", "On", "Off"}, idx)
+        if pick and pick ~= idx then setMapping("spoof", badge[1], ({false, "true", "false"})[pick] or nil) end
+        cy = cy + 36
+    end
+
+    cy = cy + 8
+    line(cx, cy, x + w - 20, cy, C.line, 3, 1)
+    cy = cy + 14
+    text("Device Icon (Pro Matcha Only)", cx, cy + 8, C.text, 13, 5, true)
+    text("Everyone sees this one - it is sent to the server. Needs Matcha's Hybrid Mode.", cx, cy + 28, C.bad, 12, 5)
+    local deviceNow = values.Device
+    local di = 1
+    local labels = {}
+    for i, d in ipairs(DEVICE_CHOICES) do
+        labels[i] = d[1]
+        if d[2] and deviceNow and d[2]:lower() == deviceNow:lower() then di = i end
+    end
+    local dp = segmented(cx, cy + 48, 400, 30, labels, di)
+    if dp and dp ~= di then setMapping("spoof", "Device", DEVICE_CHOICES[dp][2]) end
+
+    local by = y + h - 44
+    text("Shows from the next Save & Apply.", cx, by + 8, C.faint, 12, 5)
+    if button(x + w - 200, by, 180, 30, "Turn it all off") then
+        for _, f in ipairs(SPOOF_FIELDS) do setMapping("spoof", f.key, nil); state.inputs["spoof_" .. f.key] = "" end
+        for _, b in ipairs(SPOOF_BADGES) do setMapping("spoof", b[1], nil) end
+        setMapping("spoof", "Effect", nil)
+        setMapping("spoof", "Device", nil)
+    end
+end
+
+-- Profile card spoof: wins and win rate (no longer than the real text - the
+-- card can only reuse its own letters), and the picture: a preset person, a
+-- user id (their avatar) or a decal / image id. Presets: Roblox, the RIVALS
+-- developers, the YouTubers with a charm (accounts from the RIVALS wiki's
+-- charm list, checked with Roblox 2026-10-20) and the live Ranked top 20
+-- read from the lobby leaderboard.
+local CARD_FIELDS = {
+    {key = "Wins", label = "Casual wins", number = true},
+    {key = "WinRate", label = "Casual win rate %", hint = "e.g. 99.9"},
+    {key = "RankedWins", label = "Ranked wins", number = true},
+    {key = "RankedWinRate", label = "Ranked win rate %", hint = "e.g. 88.8"},
+    {key = "Avatar", label = "Picture: user id (their avatar)", number = true},
+    {key = "Picture", label = "Picture: decal or image id", number = true},
+}
+local AVATAR_PRESETS = {
+    {"Roblox", {{"Roblox", 1}, {"builderman", 156}}},
+    {"RIVALS devs", {{"Nosniy", 20349956}, {"SenseiWarrior", 15941965}, {"GreatGuyBoom", 8034104}, {"nekoanims", 780350915}}},
+    {"YouTubers", {
+        {"8sty", 172669397}, {"Applino", 1010680683}, {"atorix", 1212564846}, {"Bandites", 64516}, {"Blizmid", 266340204},
+        {"BobbVX", 301707243}, {"Brian1KB", 1730213868}, {"CarbonMeister", 487532097}, {"Chex", 2528007458}, {"Cruz", 42306452},
+        {"D_reamz", 42477697}, {"Darktru", 121130556}, {"DV", 964088769}, {"elixir", 147139016}, {"enriquebruv", 72777686},
+        {"Hoopie", 264355696}, {"hoppy819", 15315966}, {"Incublox", 4323727470}, {"KaiM", 527669241}, {"Karful", 103070346},
+        {"Kashy", 4378716640}, {"Kaye", 4891355965}, {"Khayri", 19737278}, {"Milo", 6114260623}, {"MiniBloxia", 52392831},
+        {"Mixedify", 152334685}, {"Mud", 324386852}, {"oPixel", 341006533}, {"philhood", 3410760577}, {"RODNY", 317520373},
+        {"ShadowTrojan", 13108868}, {"SharkTactics", 18394211}, {"SlingshotBwai", 719253194}, {"Stefan", 7474730049},
+        {"TanqR", 84743203}, {"viecti", 68729698}, {"WE1RD", 2466113945}}},
+    {"Ranked top 20", "live"},
+}
+-- The lobby's Ranked leaderboard, read at most every 30 s: {name, id}.
+local rankedCache, rankedAt = nil, -100
+local function liveRanked()
+    if rankedCache and tick() - rankedAt < 30 then return rankedCache end
+    rankedAt = tick()
+    local out = {}
+    pcall(function()
+        for _, g in ipairs(game:GetService("Players").LocalPlayer.PlayerGui:GetChildren()) do
+            if g.Name == "LeaderboardGui" then
+                local title
+                for _, d in ipairs(g:GetDescendants()) do if d.Name == "Title" then title = d break end end
+                local okT, t = pcall(function() return title.Text end)
+                if okT and type(t) == "string" and t:lower():find("ranked") then
+                    local rows = {}
+                    for _, d in ipairs(g:GetDescendants()) do
+                        if d.Name == "UserID" then
+                            local okI, id = pcall(function() return d.Text end)
+                            local okR, rank = pcall(function() return d.Parent:FindFirstChild("Rank").Text end)
+                            local okN, name = pcall(function() return d.Parent:FindFirstChild("DisplayName").Text end)
+                            id = okI and tonumber(tostring(id):match("(%d+)"))
+                            rank = okR and tonumber(tostring(rank):match("(%d+)"))
+                            if id and rank and rank <= 20 then rows[#rows + 1] = {rank, okN and name or tostring(id), id} end
+                        end
+                    end
+                    table.sort(rows, function(a, b) return a[1] < b[1] end)
+                    for _, r in ipairs(rows) do out[#out + 1] = {"#" .. r[1] .. " " .. r[2], r[3]} end
+                end
+            end
+        end
+    end)
+    rankedCache = out
+    return out
+end
+
+-- The picture the card will show, for the preview: a user's headshot (and
+-- name) or a decal / image thumbnail, looked up on Roblox in the background.
+local previews = {}
+local function cardPreview(kind, id)
+    local key = kind .. ":" .. id
+    local e = previews[key]
+    if e then return e end
+    e = {state = "loading"}
+    previews[key] = e
+    task.spawn(function()
+        local api = kind == "user"
+            and ("https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. id .. "&size=150x150&format=Png&isCircular=false")
+            or ("https://thumbnails.roblox.com/v1/assets?assetIds=" .. id .. "&returnPolicy=PlaceHolder&size=150x150&format=Png")
+        local ok, body = pcall(fetch, api)
+        e.url = ok and type(body) == "string" and body:match('"imageUrl"%s*:%s*"(.-)"') or nil
+        if kind == "user" then
+            local okU, u = pcall(fetch, "https://users.roblox.com/v1/users/" .. id)
+            local name = okU and type(u) == "string" and u:match('"name"%s*:%s*"(.-)"')
+            local display = okU and type(u) == "string" and u:match('"displayName"%s*:%s*"(.-)"')
+            e.name = name and ("@" .. name .. ((display and display ~= name) and (" (" .. display .. ")") or "")) or "no such user"
+        end
+        e.state = e.url and "ok" or "failed"
+    end)
+    return e
+end
+
+local function drawSpoofCard(x, y, w, h)
+    rect(x, y, w, h, C.panel, 2, 8)
+    local cx = x + 20
+    text("Profile card", cx, y + 14, C.text, 15, 5, true)
+    text("Only on your own profile card. Wins and win rate can't be longer than the real ones.", cx, y + 36, C.dim, 12, 5)
+    local cy = y + 60
+    local quarter = math.floor((w - 100) / 4)
+    for i = 1, 4 do spoofBox(CARD_FIELDS[i], cx + (i - 1) * (quarter + 20), cy, quarter) end
+    cy = cy + 62
+    local half = math.floor((w - 60) / 2)
+    spoofBox(CARD_FIELDS[5], cx, cy, half)
+    spoofBox(CARD_FIELDS[6], cx + half + 20, cy, half)
+    cy = cy + 62
+
+    -- Presets: a group, then a person; picking one sets Avatar.
+    local values = state.values.spoof or {}
+    local groups = {}
+    for i, g in ipairs(AVATAR_PRESETS) do groups[i] = g[1] end
+    local gi = state.presetGroup or 1
+    local gp = segmented(cx, cy, w - 40, 28, groups, gi)
+    if gp and gp ~= gi then state.presetGroup, gi = gp, gp; resetScroll("avatarPresets") end
+    cy = cy + 36
+    local list = AVATAR_PRESETS[gi][2]
+    if list == "live" then list = liveRanked() end
+    local names, byName = {}, {}
+    for _, p in ipairs(list) do names[#names + 1] = p[1]; byName[p[1]] = p[2] end
+    local now = tonumber(values.Avatar)
+    -- Preview, right of the list: the picture wins over the avatar, as on the card.
+    local pw = 170
+    local px = x + w - 20 - pw
+    rect(px, cy, pw, pw + 40, C.card, 3, 8)
+    local picId, kind = tonumber(values.Picture), "asset"
+    if not picId then picId, kind = now, "user" end
+    if picId then
+        local pv = cardPreview(kind, tostring(picId))
+        if pv.url and not picture(pv.url, px + 10, cy + 10, pw - 20, pw - 20, 4, "cardPreview") then
+            text("Loading...", px + pw / 2, cy + pw / 2 - 6, C.faint, 12, 5, false, true)
+        elseif not pv.url then
+            text(pv.state == "loading" and "Loading..." or "No picture", px + pw / 2, cy + pw / 2 - 6, C.faint, 12, 5, false, true)
+        end
+        text(fitText(kind == "user" and (pv.name or "...") or ("Decal / image " .. picId), pw - 12, 12), px + pw / 2, cy + pw - 2, C.text, 12, 5, false, true)
+    else
+        text("Your own picture", px + pw / 2, cy + pw / 2 - 6, C.faint, 12, 5, false, true)
+    end
+    local current
+    for _, p in ipairs(list) do if p[2] == now then current = p[1] end end
+    if #names == 0 then
+        text(AVATAR_PRESETS[gi][2] == "live" and "The Ranked leaderboard isn't loaded - stand near it in the lobby." or "Nothing here.", cx, cy + 8, C.faint, 12, 5)
+    else
+        local picked = sideList("avatarPresets", cx, cy, w - 60 - pw, h - (cy - y) - 52, names, current or "",
+            function(n) return byName[n] == now end)
+        if picked and byName[picked] then
+            setMapping("spoof", "Avatar", tostring(byName[picked]))
+            state.inputs["spoof_Avatar"] = tostring(byName[picked])
+        end
+    end
+    local by = y + h - 44
+    text("Shows the next time you open your profile.", cx, by + 8, C.faint, 12, 5)
+    if button(x + w - 200, by, 180, 30, "Clear card changes") then
+        for _, f in ipairs(CARD_FIELDS) do setMapping("spoof", f.key, nil); state.inputs["spoof_" .. f.key] = "" end
+    end
+end
+
+-- Health bar: your own bar in the bottom HUD, saved as the [HealthBar]
+-- section. Only you see it; the game draws it, so it doesn't lag.
+local HP_STYLES = {
+    {"Game's own", nil, "The game's green-to-red bar."},
+    {"Color", "Color", "One colour of your choice."},
+    {"Rainbow", "Rainbow", "The whole bar cycles through the rainbow."},
+    {"Gradient", "Gradient", "Two colours along the bar, scrolling."},
+    {"By health", "Health", "Your colours for full, half and low health."},
+    {"Match sky", "Sky", "Your sky preset's colours, scrolling (skies with matching lighting)."},
+}
+local function drawHealthBar(x, y, w, h)
+    local values = state.values.healthbar or {}
+    local cur = tostring(values.Style or ""):lower()
+    if cur == "cycle" then cur = "gradient" end
+    local styleName = "Game's own"
+    for _, s in ipairs(HP_STYLES) do if s[2] and s[2]:lower() == cur then styleName = s[1] end end
+
+    local lw = 210
+    rect(x, y, lw, h, C.panel, 2, 8)
+    text("STYLE", x + 12, y + 10, C.faint, 11, 5, true)
+    local names = {}
+    for _, s in ipairs(HP_STYLES) do names[#names + 1] = s[1] end
+    local picked = sideList("hpStyles", x + 8, y + 30, lw - 22, h - 38, names, styleName,
+        function(n) return n == styleName and n ~= "Game's own" end)
+    if picked and picked ~= styleName then
+        for _, s in ipairs(HP_STYLES) do if s[1] == picked then setMapping("healthbar", "Style", s[2]) end end
+        styleName = picked
+    end
+
+    local rx, rw = x + lw + 12, w - lw - 12
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    text("Health bar - " .. styleName, rx + 16, y + 14, C.text, 15, 5, true)
+    for _, s in ipairs(HP_STYLES) do if s[1] == styleName then text(s[3], rx + 16, y + 36, C.dim, 12, 5) end end
+
+    local function hexOf(key, fallback)
+        local v = tostring(values[key] or ""):gsub("^#", ""):lower()
+        return v:match("^%x%x%x%x%x%x$") and v or fallback
+    end
+    local speed = state.hpSpeed or tonumber(values.Speed) or 100
+    local c1raw = tostring(values.Color1 or ""):lower()
+
+    -- Preview, drawn the way the changer colours the bar.
+    local px, py, pw, ph = rx + 16, y + 62, rw - 32, 26
+    local bgRaw = tostring(values.Background or ""):lower()
+    local shineOn = tostring(values.Shine or ""):lower() == "on"
+    rect(px - 3, py - 3, pw + 6, ph + 6, bgRaw:match("^%x%x%x%x%x%x$") and hexColor(bgRaw)
+        or (bgRaw == "dark" and RGB(8, 8, 10) or RGB(20, 20, 24)), 3, 9)
+    local SL = 32
+    local t = tick()
+    local function mixHex(a, b, k)
+        local ca, cb = hexColor(a), hexColor(b)
+        return Color3.new(ca.R + (cb.R - ca.R) * k, ca.G + (cb.G - ca.G) * k, ca.B + (cb.B - ca.B) * k)
+    end
+    for i = 1, SL do
+        local u = (i - 0.5) / SL
+        local col
+        if styleName == "Color" then
+            col = hexColor(hexOf("Color", "9933ff"))
+        elseif styleName == "Rainbow" then
+            col = Color3.fromHSV((t * 0.25 * speed / 100) % 1, 0.8, 1)
+        elseif styleName == "Gradient" or styleName == "Match sky" then
+            local ph2 = t * 0.4 * speed / 100
+            if styleName == "Match sky" then
+                col = mixHex("c44cff", "668aff", 0.5 - 0.5 * math.cos(2 * math.pi * (u * 0.5 - ph2)))
+            elseif c1raw == "rainbow" then
+                col = Color3.fromHSV((u * 0.6 - ph2) % 1, 0.85, 1)
+            else
+                col = mixHex(hexOf("Color1", "ff2bd6"), hexOf("Color2", "3b5bff"), 0.5 - 0.5 * math.cos(2 * math.pi * (u * 0.5 - ph2)))
+            end
+        elseif styleName == "By health" then
+            -- Full on the left down to low on the right.
+            local a = 1 - u
+            local low, mid, full = hexOf("Low", "ff3232"), hexOf("Mid", "ffd700"), hexOf("Full", "64ff32")
+            local m = mixHex(mid, full, a)
+            local l = hexColor(low)
+            col = Color3.new(l.R + (m.R - l.R) * a, l.G + (m.G - l.G) * a, l.B + (m.B - l.B) * a)
+        else
+            col = RGB(100, 255, 50)
+        end
+        if shineOn then
+            local k = math.max(0, 1 - math.abs(u - ((t * 0.6) % 1.6 - 0.3)) / 0.12) * 0.75
+            col = Color3.new(col.R + (1 - col.R) * k, col.G + (1 - col.G) * k, col.B + (1 - col.B) * k)
+        end
+        rect(px + (i - 1) * pw / SL, py, math.ceil(pw / SL) + 1, ph, col, 4, (i == 1 or i == SL) and 6 or 0)
+    end
+
+    -- A row of colour swatches for one key; the picked one is outlined.
+    local function swatches(label, key, sy, fallback, withRainbow)
+        text(label, rx + 16, sy + 6, C.dim, 13, 5)
+        local list = {}
+        if withRainbow then list[1] = {"Rainbow", "rainbow"} end
+        for _, c in ipairs(TRACER_COLORS) do list[#list + 1] = c end
+        local sx, size = rx + 110, 24
+        local now = tostring(values[key] or ""):gsub("^#", ""):lower()
+        if now == "" then now = fallback end
+        for i, c in ipairs(list) do
+            local bx = sx + (i - 1) * (size + 6)
+            if bx + size > rx + rw - 10 then break end
+            if c[2] == "rainbow" then
+                for k = 0, 3 do rect(bx + k * size / 4, sy, size / 4 + 1, size, Color3.fromHSV(k / 4, 0.8, 1), 4, 0) end
+            else
+                rect(bx, sy, size, size, hexColor(c[2]), 4, 5)
+            end
+            if now == c[2] then border(bx - 2, sy - 2, size + 4, size + 4, C.text, 5, 6) end
+            if clicked(bx, sy, size, size) then setMapping("healthbar", key, c[2]) end
+        end
+    end
+
+    local oy = y + 106
+    if styleName == "Color" then
+        swatches("Colour", "Color", oy, "9933ff")
+    elseif styleName == "Gradient" then
+        swatches("Colour 1", "Color1", oy, "ff2bd6", true)
+        if c1raw ~= "rainbow" then swatches("Colour 2", "Color2", oy + 36, "3b5bff") end
+    elseif styleName == "By health" then
+        swatches("Full", "Full", oy, "64ff32")
+        swatches("Half", "Mid", oy + 36, "ffd700")
+        swatches("Low", "Low", oy + 72, "ff3232")
+    elseif styleName == "Game's own" then
+        text("Pick a style on the left. It shows from the next Save & Apply.", rx + 16, oy + 6, C.faint, 12, 5)
+    elseif styleName == "Match sky" then
+        local sky = (state.values.skybox or {}).Preset
+        text(sky and ("Colours from your sky: " .. sky) or "Pick a sky preset in the Sky tab first.", rx + 16, oy + 6, C.faint, 12, 5)
+    end
+
+    -- Extras for any style: a moving shine, a pulse at low health (faster as
+    -- it drops) and the bar's backing (the game's, darker, or a colour typed
+    -- below and set with "Background").
+    do
+        local ey = y + h - 126
+        text("Shine", rx + 16, ey + 6, C.dim, 13, 5)
+        local sh = segmented(rx + 64, ey, 110, 28, {"Off", "On"}, shineOn and 2 or 1)
+        if sh then setMapping("healthbar", "Shine", sh == 2 and "on" or nil) end
+        local pulseOn = tostring(values.Pulse or ""):lower() == "on"
+        text("Pulse", rx + 190, ey + 6, C.dim, 13, 5)
+        local pu = segmented(rx + 238, ey, 110, 28, {"Off", "On"}, pulseOn and 2 or 1)
+        if pu then setMapping("healthbar", "Pulse", pu == 2 and "on" or nil) end
+        text("Backing", rx + 364, ey + 6, C.dim, 13, 5)
+        local custom = bgRaw:match("^%x%x%x%x%x%x$") ~= nil
+        local bk = segmented(rx + 424, ey, math.max(150, rw - 440), 28, {"Game", "Dark", "Colour"}, custom and 3 or (bgRaw == "dark" and 2 or 1))
+        if bk == 1 then setMapping("healthbar", "Background", nil)
+        elseif bk == 2 then setMapping("healthbar", "Background", "dark")
+        elseif bk == 3 and not custom then setMapping("healthbar", "Background", "1a1a24") end
+    end
+
+    -- Speed, for Rainbow and Gradient (0 holds a gradient still). Saved when
+    -- you let go, so dragging doesn't re-apply every frame.
+    if styleName == "Rainbow" or styleName == "Gradient" or styleName == "Match sky" then
+        local sy = y + h - 84
+        text("Speed", rx + 16, sy + 6, C.dim, 13, 5)
+        local bx, bw = rx + 72, rw - 250
+        local k = math.max(0, math.min(1, speed / 300))
+        rect(bx, sy + 12, bw, 4, C.card, 3, 2)
+        rect(bx, sy + 12, math.max(1, bw * k), 4, C.accent, 4, 2)
+        circle(bx + bw * k, sy + 14, 7, C.text, 5, true)
+        if M.press and over(bx - 8, sy, bw + 16, 28) then state.hpDrag = true end
+        if state.hpDrag then
+            if M.down then
+                speed = math.floor(300 * math.max(0, math.min(1, (M.x - bx) / bw)) / 10 + 0.5) * 10
+                state.hpSpeed = speed
+                M.dragged = true
+            else
+                state.hpDrag, state.hpSpeed = nil, nil
+                setMapping("healthbar", "Speed", speed ~= 100 and tostring(speed) or nil)
+            end
+        end
+        text(speed .. "%" .. (speed == 0 and "  - still" or ""), bx + bw + 16, sy + 6, C.text, 13, 5)
+    end
+
+    -- Any colour by hex, for the key the style uses first.
+    do
+        local cy = y + h - 42
+        textbox("hpHex", rx + 12, cy, rw - 270, 30, "Any colour, like ff66cc")
+        local keys = styleName == "Gradient" and {"Color1", "Color2"} or (styleName == "By health" and {"Full", "Mid", "Low"}
+            or (styleName == "Color" and {"Color"} or {}))
+        keys[#keys + 1] = "Background"
+        local labels = {Color1 = "Colour 1", Color2 = "Colour 2", Full = "Full", Mid = "Half", Low = "Low", Color = "Use colour",
+            Background = "Backing"}
+        local bw = math.floor(240 / #keys) - 6
+        for i, key in ipairs(keys) do
+            if button(rx + rw - 252 + (i - 1) * (bw + 6), cy, bw, 30, labels[key]) then
+                local v = trim(state.inputs.hpHex or ""):gsub("^#", ""):lower()
+                if v:match("^%x%x%x%x%x%x$") then setMapping("healthbar", key, v) else state.status = "Colours are 6 hex digits, like ff66cc" end
+            end
+        end
+    end
+end
+
+-- Buttons: the menu's coloured buttons, saved as the [Buttons] section.
+-- Each style takes one colour, two (a gradient), sky or rainbow. They stay
+-- still: Roblox draws a button's gradient once.
+local BTN_STYLES = {
+    {"Green", "Green buttons", "Play, prices and confirm buttons", {"74df32", "c6ff0a"}},
+    {"Blue", "Blue buttons", "View and info buttons", {"0059ff", "00d0ff"}},
+    {"Yellow", "Yellow buttons", "Buy and free buttons", {"ffff00", "ebc015"}},
+    {"Gold", "Gold buttons", "Party leader and similar", {"fdff72", "ebb102"}},
+}
+local function drawButtons(x, y, w, h)
+    local values = state.values.buttons or {}
+    local lw = 210
+    rect(x, y, lw, h, C.panel, 2, 8)
+    text("BUTTONS", x + 12, y + 10, C.faint, 11, 5, true)
+    local names = {}
+    for _, b in ipairs(BTN_STYLES) do names[#names + 1] = b[2] end
+    local selected = state.btnStyle or BTN_STYLES[1][2]
+    local picked = sideList("btnStyles", x + 8, y + 30, lw - 22, h - 38, names, selected,
+        function(n) for _, b in ipairs(BTN_STYLES) do if b[2] == n then return values[b[1]] ~= nil end end end)
+    if picked then state.btnStyle, selected = picked, picked end
+    local style
+    for _, b in ipairs(BTN_STYLES) do if b[2] == selected then style = b end end
+    local key = style[1]
+
+    local raw = tostring(values[key] or ""):lower()
+    local c1, c2 = raw:match("^(%x%x%x%x%x%x)>(%x%x%x%x%x%x)$")
+    if not c1 and raw:match("^%x%x%x%x%x%x$") then c1 = raw end
+    local mode = raw == "sky" and "sky" or (raw == "rainbow" and "rainbow" or (c1 and "colour" or "game"))
+    local function save(a, b) setMapping("buttons", key, a and (b and (a .. ">" .. b) or a) or nil) end
+
+    local rx, rw = x + lw + 12, w - lw - 12
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    text(selected, rx + 16, y + 14, C.text, 15, 5, true)
+    text(style[3] .. " - only you see it.", rx + 16, y + 36, C.dim, 12, 5)
+
+    -- Preview: a button in the chosen colours.
+    local px, py, pw, ph = rx + 16, y + 60, 180, 40
+    local SL = 24
+    for i = 1, SL do
+        local u = (i - 0.5) / SL
+        local col
+        if mode == "rainbow" then
+            col = Color3.fromHSV(u * 0.8, 0.85, 1)
+        else
+            local a, b = style[4][1], style[4][2]
+            if mode == "sky" then a, b = "c44cff", "668aff" elseif mode == "colour" then a, b = c1, c2 or c1 end
+            local ca, cb = hexColor(a), hexColor(b)
+            local k = u
+            col = Color3.new(ca.R + (cb.R - ca.R) * k, ca.G + (cb.G - ca.G) * k, ca.B + (cb.B - ca.B) * k)
+        end
+        rect(px + (i - 1) * pw / SL, py, math.ceil(pw / SL) + 1, ph, col, 4, (i == 1 or i == SL) and 8 or 0)
+    end
+    text("Play", px + pw / 2, py + 12, C.text, 15, 5, true, true)
+
+    local my = y + 112
+    local modes = {"Game's own", "Colour", "Sky", "Rainbow"}
+    local at = ({game = 1, colour = 2, sky = 3, rainbow = 4})[mode]
+    local pickMode = segmented(rx + 16, my, 360, 28, modes, at)
+    if pickMode and pickMode ~= at then
+        if pickMode == 1 then save(nil)
+        elseif pickMode == 2 then save(c1 or "ff4fd8")
+        elseif pickMode == 3 then setMapping("buttons", key, "sky")
+        else setMapping("buttons", key, "rainbow") end
+    end
+
+    local function swatches(label, sy, now, onPick, withNone)
+        text(label, rx + 16, sy + 6, C.dim, 13, 5)
+        local sx, size = rx + 110, 24
+        local list = {}
+        if withNone then list[1] = {"None", nil} end
+        for _, c in ipairs(TRACER_COLORS) do list[#list + 1] = c end
+        for i, c in ipairs(list) do
+            local bx = sx + (i - 1) * (size + 6)
+            if bx + size > rx + rw - 10 then break end
+            if c[2] then rect(bx, sy, size, size, hexColor(c[2]), 4, 5)
+            else rect(bx, sy, size, size, C.card, 4, 5); text("-", bx + size / 2, sy + 4, C.dim, 13, 5, false, true) end
+            if now == c[2] then border(bx - 2, sy - 2, size + 4, size + 4, C.text, 5, 6) end
+            if clicked(bx, sy, size, size) then onPick(c[2]) end
+        end
+    end
+    if mode == "colour" then
+        swatches("Colour 1", my + 44, c1, function(v) save(v, c2) end)
+        swatches("Colour 2", my + 80, c2, function(v) save(c1, v) end, true)
+        local cy = y + h - 42
+        textbox("btnHex", rx + 12, cy, rw - 270, 30, "Any colour, like ff66cc")
+        for i, which in ipairs({"Colour 1", "Colour 2"}) do
+            if button(rx + rw - 252 + (i - 1) * 126, cy, 120, 30, which) then
+                local v = trim(state.inputs.btnHex or ""):gsub("^#", ""):lower()
+                if not v:match("^%x%x%x%x%x%x$") then state.status = "Colours are 6 hex digits, like ff66cc"
+                elseif i == 1 then save(v, c2) else save(c1, v) end
+            end
+        end
+    elseif mode == "sky" then
+        local sky = (state.values.skybox or {}).Preset
+        text(sky and ("Colours from your sky: " .. sky) or "Pick a sky preset in the Sky tab first.", rx + 16, my + 50, C.faint, 12, 5)
+    end
+end
+
+-- Theme ([Theme] in the config): one look for the menu buttons, the health
+-- bar and the tracers. The changer fills in only what those tabs leave unset.
+local THEMES = {{"", "None", "8a96ab", "5f6b80"}, {"neon", "Neon", "ff00e6", "00f0ff"}, {"pastel", "Pastel", "ffb3d9", "b3e5ff"},
+    {"mono", "Monochrome", "ffffff", "7a7a7a"}, {"sunset", "Sunset", "ff5e3a", "ffcc33"}, {"ocean", "Ocean", "0077ff", "00e5c7"},
+    {"halloween", "Halloween", "ff7a00", "8a2dff"}, {"christmas", "Christmas", "e01b24", "1fae4b"},
+    FOLLOW = {{"", "Nothing"}, {"time", "Time of day"}, {"rarity", "Skin rarity"}, {"wrap", "Wrap in hand"}}}
+function THEMES.draw(x, y, w, h)
+    rect(x, y, w, h, C.panel, 2, 8)
+    local values = state.values.theme or {}
+    local now, follow = (values.Preset or ""):lower(), (values.Follow or ""):lower()
+    local cx = x + 20
+    text("Theme", cx, y + 14, C.text, 15, 5, true)
+    text("One look for the menu buttons, the health bar and the tracers. What you set in their own tabs wins.",
+        cx, y + 36, C.dim, 12, 5)
+    local cols = 4
+    local tw = math.floor((w - 40 - (cols - 1) * 12) / cols)
+    for i, t in ipairs(THEMES) do
+        local tx = cx + ((i - 1) % cols) * (tw + 12)
+        local ty = y + 64 + math.floor((i - 1) / cols) * 70
+        local sel = now == t[1]
+        rect(tx, ty, tw, 58, over(tx, ty, tw, 58) and C.cardHover or C.card, 3, 8)
+        local a, b = hexColor(t[3]), hexColor(t[4])
+        local SL = 16
+        for k = 1, SL do
+            local u = (k - 0.5) / SL
+            rect(tx + 10 + (k - 1) * (tw - 20) / SL, ty + 10, math.ceil((tw - 20) / SL) + 1, 16,
+                Color3.new(a.R + (b.R - a.R) * u, a.G + (b.G - a.G) * u, a.B + (b.B - a.B) * u), 4, (k == 1 or k == SL) and 6 or 0)
+        end
+        text(t[2], tx + tw / 2, ty + 34, sel and C.text or C.dim, 13, 5, sel, true)
+        if sel then border(tx, ty, tw, 58, C.accent, 6, 8, 2) end
+        if clicked(tx, ty, tw, 58) then setMapping("theme", "Preset", t[1] ~= "" and t[1] or nil) end
+    end
+    local fy = y + 64 + math.ceil(#THEMES / cols) * 70 + 10
+    text("Follow", cx, fy + 6, C.text, 14, 5, true)
+    local hints = {
+        [""] = "The preset's colours stay as they are.",
+        time = "Dawn orange, day blue, dusk pink, night purple - from your clock when it applies (it wins over the preset).",
+        rarity = "Each gun's tracers take its skin's rarity colour; buttons and health bar keep the preset.",
+        wrap = "Tracers match the weapon in your hands; buttons and health bar keep the preset.",
+    }
+    text(hints[follow] or hints[""], cx, fy + 26, C.faint, 12, 5)
+    local names, at = {}, 1
+    for i, f in ipairs(THEMES.FOLLOW) do names[i] = f[2]; if f[1] == follow then at = i end end
+    local fp = segmented(cx, fy + 48, math.min(520, w - 40), 30, names, at)
+    if fp and fp ~= at then setMapping("theme", "Follow", THEMES.FOLLOW[fp][1] ~= "" and THEMES.FOLLOW[fp][1] or nil) end
+    text("Shows after Save & Apply. Clear Buttons, Health bar and Tracers to let the theme do all three.",
+        cx, y + h - 30, C.faint, 12, 5)
+end
+
+-- Custom wraps ([CustomWrap1..3]): up to 3 wraps of your own. Each replaces
+-- wraps you own and sets a material, colour and transparency for the 3 parts of
+-- a wrap, with one pattern borrowed from any wrap in the game.
+THEMES.CW = {MATS = {"Neon", "ForceField", "Glass", "Metal", "SmoothPlastic"}, TRANS = {0, 0.25, 0.5, 0.75},
+    PARTS = {"Main", "Second", "Accent"},
+    PRESETS = {{"Neon", {"Neon", 0}, nil}, {"Hologram", {"Neon", 0.6}, nil}, {"Mesh", {"ForceField", 0}, "Mesh"}}}
+function THEMES.drawWraps(x, y, w, h)
+    local CW = THEMES.CW
+    local slot = state.cwSlot or 1
+    local key = "customwrap" .. slot
+    local values = state.values[key] or {}
+    local lw = 230
+    rect(x, y, lw, h, C.panel, 2, 8)
+    local leftTab = state.cwLeft or 1
+    local lt = segmented(x + 8, y + 8, lw - 16, 26, {"Replaces", "Pattern"}, leftTab)
+    if lt and lt ~= leftTab then state.cwLeft, leftTab = lt, lt; resetScroll("cwList") end
+    local on, list = {}, {}
+    for name in tostring(values.Replace or ""):gmatch("[^,]+") do
+        name = trim(name)
+        if name ~= "" then on[name] = true; list[#list + 1] = name end
+    end
+    local names = {}
+    if leftTab == 2 then names[1] = "None" end
+    for _, item in ipairs(catalog.wraps or {}) do
+        if leftTab == 2 or on[item.name] or not ownedOnly() or owns(item.name) then names[#names + 1] = item.name end
+    end
+    local pattern = values.Pattern or "None"
+    local picked = sideList("cwList", x + 8, y + 42, lw - 22, h - 50, names, leftTab == 2 and pattern or "",
+        function(n) if leftTab == 2 then return n == pattern and n ~= "None" end return on[n] end)
+    if picked and leftTab == 2 then
+        setMapping(key, "Pattern", picked ~= "None" and picked or nil)
+    elseif picked then
+        if on[picked] then
+            for i = #list, 1, -1 do if list[i] == picked then table.remove(list, i) end end
+        else
+            list[#list + 1] = picked
+        end
+        setMapping(key, "Replace", #list > 0 and table.concat(list, ",") or nil)
+    end
+    local rx, rw = x + lw + 12, w - lw - 12
+    rect(rx, y, rw, h, C.panel, 2, 8)
+    local cx = rx + 16
+    local sl = segmented(cx, y + 10, 270, 28, {"Wrap 1", "Wrap 2", "Wrap 3"}, slot)
+    if sl then state.cwSlot = sl end
+    text("Listed in Cosmetics > Wraps as Custom Wrap " .. slot .. "  -  pattern: " .. pattern, cx + 284, y + 17, C.dim, 12, 5)
+    text("Presets", cx, y + 54, C.dim, 13, 5)
+    for i, p in ipairs(CW.PRESETS) do
+        if button(cx + 74 + (i - 1) * 104, y + 48, 96, 28, p[1]) then
+            local col = values.Color1 or "ff00e6"
+            for k = 1, 3 do
+                setMapping(key, "Material" .. k, p[2][1])
+                setMapping(key, "Transparency" .. k, tostring(p[2][2]))
+                setMapping(key, "Color" .. k, col)
+            end
+            setMapping(key, "Pattern", p[3])
+        end
+    end
+    local part = state.cwPart or 1
+    text("Part", cx, y + 96, C.dim, 13, 5)
+    local pp = segmented(cx + 74, y + 90, 300, 28, CW.PARTS, part)
+    if pp then state.cwPart, part = pp, pp end
+    text("Material", cx, y + 136, C.dim, 13, 5)
+    local mat = tostring(values["Material" .. part] or ""):lower()
+    local mi = 0
+    for i, m in ipairs(CW.MATS) do if m:lower() == mat then mi = i end end
+    local mp = segmented(cx + 74, y + 130, rw - 106, 28, {"Neon", "Force", "Glass", "Metal", "Plastic"}, mi)
+    if mp then setMapping(key, "Material" .. part, CW.MATS[mp]) end
+    text("See-through", cx, y + 176, C.dim, 13, 5)
+    local tr, ti = tonumber(values["Transparency" .. part]) or 0, 1
+    for i, t in ipairs(CW.TRANS) do if math.abs(t - tr) < 0.01 then ti = i end end
+    local tp = segmented(cx + 94, y + 170, 280, 28, {"0%", "25%", "50%", "75%"}, ti)
+    if tp then setMapping(key, "Transparency" .. part, tostring(CW.TRANS[tp])) end
+    local now = tostring(values["Color" .. part] or ""):gsub("^#", ""):lower()
+    text("Colour", cx, y + 216, C.dim, 13, 5)
+    local size = 24
+    for i, c in ipairs(TRACER_COLORS) do
+        local bx = cx + 74 + (i - 1) * (size + 6)
+        if bx + size > rx + rw - 10 then break end
+        rect(bx, y + 210, size, size, hexColor(c[2]), 4, 5)
+        if now == c[2] then border(bx - 2, y + 208, size + 4, size + 4, C.text, 5, 6) end
+        if clicked(bx, y + 210, size, size) then setMapping(key, "Color" .. part, c[2]) end
+    end
+    textbox("cwHex", rx + 12, y + 246, rw - 150, 30, "Any colour, like ff66cc")
+    if button(rx + rw - 130, y + 246, 118, 30, "Use colour") then
+        local v = trim(state.inputs.cwHex or ""):gsub("^#", ""):lower()
+        if v:match("^%x%x%x%x%x%x$") then setMapping(key, "Color" .. part, v) else state.status = "Colours are 6 hex digits, like ff66cc" end
+    end
+    text("Most guns are mainly the Main part. Neon hides patterns. Shows on your next match, or when you re-enter an area.",
+        cx, y + h - 66, C.faint, 12, 5)
+    text("A wrap here wins over its line in Cosmetics. Only you see it.", cx, y + h - 46, C.faint, 12, 5)
+    if button(rx + rw - 150, y + h - 38, 138, 28, "Clear this wrap") then
+        for _, k in ipairs({"Replace", "Pattern", "Color1", "Color2", "Color3", "Material1", "Material2", "Material3", "Transparency1", "Transparency2", "Transparency3"}) do
+            setMapping(key, k, nil)
+        end
+    end
+end
+
+-- Scope shading, saved as [Scope] Clear=on: the dark vignette and black ring
+-- around the Sniper's and Crossbow's scope are hidden, the reticle stays.
+THEMES.drawScope = function(x, y, w, h)
+    local on = tostring((state.values.scope or {}).Clear or ""):lower()
+    on = on == "on" or on == "true" or on == "yes" or on == "1"
+    rect(x, y, w, h, C.panel, 2, 8)
+    text("Scope shading", x + 16, y + 14, C.text, 15, 5, true)
+    text("Now: " .. (on and "removed - only the reticle and red dot show" or "the game's own dark scope"), x + 16, y + 36, C.dim, 12, 5)
+    local p = segmented(x + 16, y + 64, 300, 32, {"Game's scope", "No shading"}, on and 2 or 1)
+    if p and (p == 2) ~= on then setMapping("scope", "Clear", p == 2 and "on" or nil) end
+    text("Removes the dark vignette and the black ring around the view when you scope in", x + 16, y + 112, C.dim, 12, 5)
+    text("with the Sniper, the Crossbow and their skins. Only you see it.", x + 16, y + 132, C.dim, 12, 5)
+    text("Shows from the next Save & Apply, on your next scope-in.", x + 16, y + h - 26, C.faint, 12, 5)
+end
+
+-- Misc: smaller features, each a tab of its own under this one.
+local function drawMisc(x, y, w, h)
+    local at = state.miscTab or 1
+    local pick = segmented(x, y, math.min(w, 860), 30, {"Tracers", "Hands", "Spoof", "Profile card", "Health bar", "Buttons", "Theme", "Wraps", "Scope"}, at)
+    if pick and pick ~= at then state.miscTab, at, focus = pick, pick, nil end
+    if at == 1 then drawTracers(x, y + 38, w, h - 38)
+    elseif at == 2 then drawHands(x, y + 38, w, h - 38)
+    elseif at == 3 then drawSpoof(x, y + 38, w, h - 38)
+    elseif at == 4 then drawSpoofCard(x, y + 38, w, h - 38)
+    elseif at == 5 then drawHealthBar(x, y + 38, w, h - 38)
+    elseif at == 6 then drawButtons(x, y + 38, w, h - 38)
+    elseif at == 7 then THEMES.draw(x, y + 38, w, h - 38)
+    elseif at == 8 then THEMES.drawWraps(x, y + 38, w, h - 38)
+    else THEMES.drawScope(x, y + 38, w, h - 38) end
+end
+
+-- Support ID: a short number for this PC, made here from Matcha's hardware ID
+-- and scrambled so it can't be turned back into it. Nothing is sent anywhere;
+-- it is printed so a log or screenshot says which copy it came from, and the
+-- changer refuses to run for IDs listed in the repo's blacklist.txt.
+local function supportId()
+    local ok, hw = pcall(function() return gethwid() end)
+    if not ok or type(hw) ~= "string" or hw == "" then return nil end
+    local s = "rsc:" .. hw
+    local h1, h2 = 7, 11
+    for _ = 1, 3 do
+        for i = 1, #s do
+            local c = s:byte(i)
+            h1 = (h1 * 131 + c + h2 % 251) % 999983
+            h2 = (h2 * 65599 + c * 7 + i + h1 % 509) % 1000003
+        end
+    end
+    return string.format("%04d-%04d", h1 % 10000, h2 % 10000)
+end
+-- Settings pages: names, then what each draws.
+local SETTINGS_PAGES = {names = {"General", "Extras", "Config", "Log", "About"}}
+-- A key binding button: click it, then press the key (Esc cancels).
+function SETTINGS_PAGES.bind(which, bx, by, label)
+    local active = state.binding == which
+    if button(bx, by, 180, 30, active and "Press a key..." or label, active) and not state.binding then
+        -- Keys already held when binding starts don't count.
+        state.binding, state.bindHeld = which, {}
+        for vk in pairs(KEY_NAMES) do
+            local okDown, down = pcall(iskeypressed, vk)
+            if okDown and down then state.bindHeld[vk] = true end
+        end
+    end
+end
+
+SETTINGS_PAGES[1] = function(x, y, w, cx, cy)
+    text("Auto-apply on join", cx, cy + 6, C.text, 14, 5, true)
+    text("Applies your saved config by itself once per server.", cx, cy + 26, C.faint, 12, 5)
+    local a = segmented(x + w - 200, cy, 180, 30, {"Off", "On"}, state.autoApply and 2 or 1)
+    if a then state.autoApply = a == 2; saveSettings() end
+    cy = cy + 50
+    text("Mouse offset", cx, cy + 6, C.text, 14, 5, true)
+    text("If the dot isn't on your cursor, move it until it is: " .. state.mouseOffset .. " px",
+        cx, cy + 26, C.faint, 12, 5)
+    if button(x + w - 200, cy, 84, 30, "Up") then state.mouseOffset = state.mouseOffset - 2; saveSettings() end
+    if button(x + w - 104, cy, 84, 30, "Down") then state.mouseOffset = state.mouseOffset + 2; saveSettings() end
+    cy = cy + 50
+    text("Reload", cx, cy + 6, C.text, 14, 5, true)
+    text("After editing the config elsewhere, or when the site gets new skins.", cx, cy + 26, C.faint, 12, 5)
+    if button(x + w - 200, cy, 84, 30, "Lists") then job("Reading lists...", loadCatalog) end
+    if button(x + w - 104, cy, 84, 30, "Config") then job("Reading config...", loadConfig) end
+    cy = cy + 50
+    text("Accent color", cx, cy + 6, C.text, 14, 5, true)
+    text("Buttons, highlights and the picked tile.", cx, cy + 26, C.faint, 12, 5)
+    for i, hex in ipairs(ACCENTS) do
+        local sx = x + w - 20 - (#ACCENTS - i) * 30 - 12
+        local sy = cy + 15
+        local ok, col3 = pcall(Color3.fromHex, "#" .. hex)
+        if ok then circle(sx, sy, 10, col3, 5, true) end
+        if hex == state.accent then circle(sx, sy, 14, C.text, 5, false, 2) end
+        if clicked(sx - 14, sy - 14, 28, 28) then state.accent = hex; applyAccent(hex); saveSettings() end
+    end
+    cy = cy + 50
+    text("Show / hide key", cx, cy + 6, C.text, 14, 5, true)
+    text(state.binding == "toggle" and "Press the key to use. Esc cancels." or "Click, then press the key that shows and hides this window.",
+        cx, cy + 26, C.faint, 12, 5)
+    SETTINGS_PAGES.bind("toggle", x + w - 200, cy, keyName(state.toggleKey))
+    cy = cy + 50
+    text("Lists", cx, cy + 6, C.text, 14, 5, true)
+    text(inventory and "The \"you own\" lists show only what you own, or everything."
+        or "Your inventory couldn't be read - the lists show everything. Try Reload > Lists in a match.", cx, cy + 26, C.faint, 12, 5)
+    local o = segmented(x + w - 200, cy, 180, 30, {"Everything", "Owned"}, state.ownedOnly and 2 or 1)
+    if o then state.ownedOnly = o == 2; saveSettings() end
+    cy = cy + 50
+    text("Window on autoexec", cx, cy + 6, C.text, 14, 5, true)
+    text("Hidden: it loads quietly and " .. keyName(state.toggleKey) .. " opens it.", cx, cy + 26, C.faint, 12, 5)
+    local v = segmented(x + w - 200, cy, 180, 30, {"Hidden", "Shown"}, state.showOnAutoexec and 2 or 1)
+    if v then state.showOnAutoexec = v == 2; saveSettings() end
+    cy = cy + 50
+    text("Unload", cx, cy + 6, C.text, 14, 5, true)
+    text("Removes this window until the script runs again.", cx, cy + 26, C.faint, 12, 5)
+    if button(x + w - 200, cy, 180, 30, "Unload") then state.unload = true end
+end
+
+SETTINGS_PAGES[2] = function(x, y, w, cx, cy)
+    text("Safe mode", cx, cy + 6, C.text, 14, 5, true)
+    text("Applies only skins, wraps, finishers and charms - no world, sound, HUD or spoof changes.",
+        cx, cy + 26, C.faint, 12, 5)
+    local sm = segmented(x + w - 200, cy, 180, 30, {"Off", "On"}, state.safeMode and 2 or 1)
+    if sm then state.safeMode = sm == 2; saveSettings() end
+    cy = cy + 50
+    text("FPS-friendly mode", cx, cy + 6, C.text, 14, 5, true)
+    text("The changer's live effects (health bar, tracers, hands, spoof) update less often.",
+        cx, cy + 26, C.faint, 12, 5)
+    local fm = segmented(x + w - 200, cy, 180, 30, {"Off", "On"}, state.fpsMode and 2 or 1)
+    if fm then state.fpsMode = fm == 2; saveSettings() end
+    cy = cy + 50
+    text("Panic key", cx, cy + 6, C.text, 14, 5, true)
+    text(state.binding == "panic" and "Press the key to use. Esc cancels."
+        or "Puts the game's own look back in one press. Save & Apply brings your skins back.", cx, cy + 26, C.faint, 12, 5)
+    SETTINGS_PAGES.bind("panic", x + w - 200, cy, state.panicKey and keyName(state.panicKey) or "Not set")
+    cy = cy + 50
+    text("Changer notifications", cx, cy + 6, C.text, 14, 5, true)
+    text("Which of the changer's pop-ups show.", cx, cy + 26, C.faint, 12, 5)
+    local nl = segmented(x + w - 260, cy, 240, 30, {"All", "Errors", "Off"}, state.notify)
+    if nl then state.notify = nl; saveSettings() end
+    cy = cy + 50
+    text("Notification style", cx, cy + 6, C.text, 14, 5, true)
+    text("Matcha's pop-up, Roblox's corner pop-up, or both.", cx, cy + 26, C.faint, 12, 5)
+    local ns = segmented(x + w - 260, cy, 240, 30, {"Both", "Matcha", "Roblox"}, state.notifyStyle)
+    if ns then state.notifyStyle = ns; saveSettings() end
+    cy = cy + 50
+    text("These take effect the next time you Save & Apply.", cx, cy + 6, C.faint, 12, 5)
+    if state.panicKey and button(x + w - 200, cy, 180, 30, "Clear panic key") then state.panicKey = nil; saveSettings() end
+end
+
+-- Config: what changed since the last save, copy / share / import, your
+-- inventory, and the history of earlier saves.
+-- Switches to loadout n: the current saved config goes to the history, the
+-- loadout becomes the config, and it is applied (only what differs).
+-- Also reachable as _G.RivalsGuiState.useLoadout(n).
+shared.useLoadout = function(n)
+    local slot = history.loadout(n)
+    assert(slot, "Loadout " .. tostring(n) .. " is empty.")
+    history.push(state.baseline or "")
+    writefile(FILE, slot.text)
+    loadConfig()
+    apply()
+    state.status = "Switched to " .. slot.name .. ". " .. tostring(state.status or "")
+end
+SETTINGS_PAGES[3] = function(x, y, w, cx, cy, h)
+    local saved = state.baseline or ""
+    local view = history.view(saved, state.readable and configText() or saved)
+    local added, removed = view.added, view.removed
+    text("Not saved yet", cx, cy + 6, C.text, 14, 5, true)
+    text(#added + #removed == 0 and "Nothing - the file matches what you see."
+        or string.format("%d added, %d removed - Save & Apply writes them:", #added, #removed), cx, cy + 26, C.faint, 12, 5)
+    local ly = cy + 46
+    local shown = 0
+    for _, pair in ipairs({{added, "+ ", C.accent}, {removed, "- ", C.dim}}) do
+        for _, l in ipairs(pair[1]) do
+            if shown < 5 then
+                text(fitText(pair[2] .. l, w - 60, 12), cx + 8, ly, pair[3], 12, 5)
+                ly, shown = ly + 16, shown + 1
+            end
+        end
+    end
+    if #added + #removed > shown then text("... and " .. (#added + #removed - shown) .. " more", cx + 8, ly, C.faint, 12, 5) end
+    cy = cy + 140
+    local bw = math.floor((w - 70) / 4)
+    if button(cx, cy, bw, 30, "Copy config") then
+        local ok = pcall(setclipboard, saved)
+        state.status = ok and "Copied your saved config." or "Copying isn't supported here."
+    end
+    if button(cx + bw + 10, cy, bw, 30, "Copy share code") then
+        local ok = pcall(setclipboard, history.code(saved))
+        state.status = ok and "Share code copied - paste it in the site's import box or rivals_import.txt." or "Copying isn't supported here."
+    end
+    if button(cx + (bw + 10) * 2, cy, bw, 30, "Import file") then
+        job("Importing...", function()
+            local okR, body = pcall(readfile, "rivals_import.txt")
+            local textIn = okR and history.decode(body)
+            assert(textIn, "Put a config or share code in rivals_import.txt (Matcha's workspace folder) first.")
+            history.push(saved)
+            writefile(FILE, textIn)
+            loadConfig()
+            state.status = "Imported rivals_import.txt - your old config is in the history below."
+        end)
+    end
+    if button(cx + (bw + 10) * 3, cy, bw, 30, "Export inventory") then
+        job("Exporting...", function()
+            assert(inventory, "Your inventory couldn't be read - try Reload > Lists in a match.")
+            local out = {}
+            for name, e in pairs(inventory) do
+                local on = {}
+                if type(e) == "table" then for wpn in pairs(e) do on[#on + 1] = wpn end end
+                table.sort(on)
+                out[#out + 1] = name .. (#on > 0 and (" (" .. table.concat(on, ", ") .. ")") or "")
+            end
+            table.sort(out)
+            writefile("rivals_inventory.txt", table.concat(out, "\n") .. "\n")
+            state.status = "Saved " .. #out .. " items to rivals_inventory.txt."
+        end)
+    end
+    cy = cy + 46
+    -- Loadouts: save the current config in a slot, or put one back and apply
+    -- it (only what differs is applied). The config it replaces goes to the
+    -- history first.
+    text("Loadouts", cx, cy + 6, C.text, 14, 5, true)
+    textbox("loadoutName", cx + 90, cy, 220, 28, "Name for Save")
+    text("Save keeps your saved config in a slot; Use switches to it.", cx + 324, cy + 7, C.faint, 12, 5)
+    cy = cy + 36
+    local slots = history.loadouts()
+    local sw = math.floor((w - 40 - (history.LOADOUTS - 1) * 8) / history.LOADOUTS)
+    for n = 1, history.LOADOUTS do
+        local sx, slot = cx + (n - 1) * (sw + 8), slots[n]
+        rect(sx, cy, sw, 58, C.card, 3, 6)
+        text(fitText(slot and slot.name or ("Empty " .. n), sw - 12, 12), sx + 6, cy + 6, slot and C.text or C.faint, 12, 5, slot ~= false)
+        local hw = math.floor((sw - 18) / 2)
+        if button(sx + 6, cy + 26, hw, 26, "Save") then
+            local name = trim(state.inputs.loadoutName or "")
+            local okS, err = pcall(history.saveLoadout, n, name ~= "" and name or (slot and slot.name), saved)
+            state.status = okS and ("Saved your config as \"" .. tostring(err) .. "\".") or tostring(err)
+        end
+        if slot and button(sx + 12 + hw, cy + 26, hw, 26, "Use", true, shared.busy or upstreamBusy()) then
+            job("Switching to " .. slot.name .. "...", function() shared.useLoadout(n) end)
+        end
+    end
+    cy = cy + 70
+    text("History", cx, cy + 6, C.text, 14, 5, true)
+    text("Each save keeps the config before it (last " .. history.max .. ").", cx, cy + 26, C.faint, 12, 5)
+    cy = cy + 50
+    local list = view.list
+    if #list == 0 then text("Nothing yet - it fills as you save.", cx, cy + 6, C.faint, 12, 5) end
+    for i, entry in ipairs(list) do
+        if cy + 30 > y + (h or 524) - 54 then break end
+        text(entry.stamp .. "   -   " .. (entry.changes or 0) .. " lines differ from now", cx, cy + 7, C.dim, 12, 5)
+        if button(x + w - 200, cy, 180, 26, "Put this back") then
+            job("Restoring...", function()
+                history.push(saved)
+                writefile(FILE, entry.text)
+                loadConfig()
+                state.status = "Restored the config from " .. entry.stamp .. ". Save & Apply to use it."
+            end)
+        end
+        cy = cy + 32
+        if i >= 8 then break end
+    end
+end
+-- The changer's own lines from this session (newest at the bottom), and one
+-- button that copies them with what support needs to know.
+function SETTINGS_PAGES.support()
+    local okV, rbx = pcall(getrbxversion)
+    local out = {"Rivals Skin Changer - support output",
+        "Support ID: " .. tostring(state.supportId or supportId() or "unavailable"),
+        "Roblox: " .. (okV and tostring(rbx) or "unknown"),
+        "Settings: safe=" .. tostring(state.safeMode) .. " fps=" .. tostring(state.fpsMode)
+            .. " autoapply=" .. tostring(state.autoApply), ""}
+    local okD, diag = pcall(SETTINGS_PAGES.diagnose)
+    if okD then
+        out[#out + 1] = "--- checks"
+        for _, d in ipairs(diag) do out[#out + 1] = "[" .. d[1] .. "] " .. d[2] .. (d[3] and (" - " .. d[3]) or "") end
+        out[#out + 1] = ""
+    end
+    for _, l in ipairs(type(_G.__RSC_LOG) == "table" and _G.__RSC_LOG or {}) do out[#out + 1] = l end
+    for _, name in ipairs({"rivals_crash_trail.txt", "rivals_alive.txt"}) do
+        local okR, body = pcall(readfile, name)
+        if okR and type(body) == "string" then
+            out[#out + 1] = ""
+            out[#out + 1] = "--- " .. name
+            out[#out + 1] = body:sub(-6000)
+        end
+    end
+    return table.concat(out, "\n")
+end
+-- One-click checks: each common problem as a line with a verdict (ok, warn,
+-- fail) and what to do about it, in plain words.
+function SETTINGS_PAGES.diagnose()
+    local out = {}
+    local function add(level, what, tip) out[#out + 1] = {level, what, tip} end
+    local context = currentContext()
+    add(context and "ok" or "fail", context and "In RIVALS, weapons loaded" or "Not in RIVALS, or its weapons haven't loaded",
+        not context and "Join a match or the shooting range and wait a few seconds." or nil)
+    local off = _G.__RSC_OFFSETS
+    local okV, rbx = pcall(getrbxversion)
+    if type(off) ~= "table" then
+        add("warn", "The changer hasn't run in this server yet", "Press Save & Apply, then run the checks again.")
+    elseif off.fits == false or (okV and off.version and tostring(rbx):find(tostring(off.version), 1, true) == nil and off.fits ~= true) then
+        add("fail", "The offsets don't match this Roblox build (" .. tostring(okV and rbx or "?") .. ")",
+            "Roblox updated: wait for the offsets and the script to update, then rejoin.")
+    else
+        add("ok", "Offsets fit this Roblox build (" .. tostring(off.from or "?") .. ")")
+    end
+    local trace = _G.__RSC_ROUTE_TRACE
+    if type(off) == "table" then
+        local slow = false
+        for _, l in ipairs(type(_G.__RSC_LOG) == "table" and _G.__RSC_LOG or {}) do
+            -- Only the latest run counts.
+            if l:find("^%-%-%-%- run at") then slow = false end
+            if l:find("slow memory scan", 1, true) then slow = true end
+        end
+        if _G.__RSC_LAYOUT and not slow then
+            add("ok", "Memory layout found the fast way")
+        else
+            add("warn", "Memory layout: used the slow scan" .. (trace and trace.stop and (" (" .. tostring(trace.stop) .. ")") or ""),
+                "Usually the game was still loading: Save & Apply again. If it repeats, copy the output for support.")
+        end
+    end
+    local crashed = history.crashedStep()
+    add(crashed and "warn" or "ok", crashed and ("The last run never finished (stopped at \"" .. crashed:sub(1, 50) .. "\")") or "The last run finished",
+        crashed and "Matcha or Roblox closed mid-apply. If it happens again, copy the output for support." or nil)
+    local probs = type(_G.__RSC_PROBLEMS) == "table" and _G.__RSC_PROBLEMS or {}
+    if #probs == 0 then
+        add("ok", "No problems reported by the last run")
+    else
+        for i = 1, math.min(3, #probs) do add("warn", tostring(probs[i]):sub(1, 110)) end
+    end
+    local offCount = 0
+    for _, l in ipairs(type(_G.__RSC_LOG) == "table" and _G.__RSC_LOG or {}) do
+        if l:find("turned off for this server", 1, true) then
+            offCount = offCount + 1
+            add("warn", l:sub(1, 110), "That feature stops until you rejoin; its setting may not suit this Roblox build.")
+        end
+    end
+    if offCount == 0 then add("ok", "All live features running") end
+    if not state.readable then
+        add("fail", "Your config couldn't be read", "Settings > General > Reload > Config.")
+    else
+        local clash = configClashes()
+        if #clash > 0 then add("warn", "Two lines use the same item: " .. table.concat(clash, ", "):sub(1, 90), "The changer skips those; change one of them.") end
+        local unknown = {}
+        for weapon, skin in pairs(state.values.skins or {}) do
+            local wpn = weaponEntry(weapon)
+            if catalog.loaded and (not wpn or not (wpn.info or {})[skin]) and skin:lower() ~= "default" then unknown[#unknown + 1] = weapon .. "=" .. skin end
+        end
+        local wrapNames = {}
+        for _, it in ipairs(catalog.wraps or {}) do wrapNames[it.name] = true end
+        for owned, target in pairs(state.values.wraps or {}) do
+            if catalog.loaded and not target:match("^[Cc]ustom [Ww]rap %d$") and not wrapNames[target] then unknown[#unknown + 1] = owned .. "=" .. target end
+        end
+        if #unknown > 0 then
+            table.sort(unknown)
+            add("warn", "Names not in the lists: " .. table.concat(unknown, ", "):sub(1, 90), "Check the spelling, or Reload > Lists if the game just added them.")
+        elseif #clash == 0 then
+            add("ok", "Config readable, no clashes or unknown names")
+        end
+    end
+    add(catalog.loaded and #catalog.weapons > 0 and "ok" or "warn", catalog.loaded and #catalog.weapons > 0 and "Site lists loaded" or "The site's lists didn't load",
+        not (catalog.loaded and #catalog.weapons > 0) and "Check your connection, then Reload > Lists." or nil)
+    for _, f in ipairs(SCRIPT_FILES) do
+        local okF, has = pcall(isfile, f)
+        if okF and has then add("warn", "A local copy of the changer (" .. f .. ") is used instead of the published one",
+            "Delete it from Matcha's workspace unless you're testing.") break end
+    end
+    state.diag, state.diagAt = out, tick()
+    return out
+end
+-- Also reachable from the console (_G.RivalsGuiState.diagnose()), for support.
+shared.diagnose = SETTINGS_PAGES.diagnose
+
+-- Setup check: is Matcha set up the way the changer needs? Same lines as the
+-- checks, and a line that can be put right safely carries a Fix (d[4]).
+function SETTINGS_PAGES.setupCheck()
+    local out = {}
+    local function add(level, what, tip, fix) out[#out + 1] = {level, what, tip, fix} end
+    local missing, optional = {}, {}
+    local NEED = {Drawing = Drawing, memory_read = memory_read, memory_write = memory_write,
+        readfile = readfile, writefile = writefile, isfile = isfile, listfiles = listfiles}
+    for name, f in pairs(NEED) do if f == nil then missing[#missing + 1] = name end end
+    for name, f in pairs({setclipboard = setclipboard, getrbxversion = getrbxversion, delfile = delfile}) do
+        if f == nil then optional[#optional + 1] = name end
+    end
+    table.sort(optional)
+    table.sort(missing)
+    add(#missing == 0 and "ok" or "fail", #missing == 0 and "Matcha has everything the changer needs"
+        or ("Matcha is missing: " .. table.concat(missing, ", ")), #missing > 0 and "Update Matcha, then restart it." or nil)
+    if #optional > 0 then add("warn", "Not available (only extras use them): " .. table.concat(optional, ", ")) end
+    local okA, onJoin = pcall(autoexecLoadsGui)
+    if okA and onJoin then
+        add("ok", "Starts by itself when you join (found in autoexec)")
+    else
+        -- Matcha usually won't let a script read its autoexec folder, so not
+        -- finding it there proves nothing: a note, not a warning.
+        add("info", "Can't look inside Matcha's autoexec folder from here",
+            "To start it on every join, put the loadstring in a file in that folder.")
+    end
+    local menu = _G.__MatchaBuiltInGui
+    if type(menu) == "table" then
+        add("warn", "The menu-tab GUI is running too", "Both work, but use one: two can apply at the same time.",
+            function() pcall(menu.stop); state.status = "Stopped the menu-tab GUI." end)
+    else
+        add("ok", "Only this GUI is running")
+    end
+    local okS, hasS = pcall(isfile, SETTINGS)
+    add((okS and hasS and state.settingsRead) and "ok" or "warn",
+        (okS and hasS and state.settingsRead) and "Settings saved" or "Settings not saved yet",
+        not (okS and hasS) and "Fix saves them now." or nil,
+        not (okS and hasS) and function() saveSettings(); state.settingsRead = true end or nil)
+    local okC, hasC = pcall(isfile, FILE)
+    if not (okC and hasC) then
+        add("warn", "No config yet (" .. FILE .. ")", "Pick a skin on the Skins page and press Save & Apply.")
+    else
+        add(state.readable and "ok" or "fail", state.readable and "Config file found and readable" or "Config file can't be read",
+            not state.readable and "Settings > Config > History puts back an earlier one." or nil)
+    end
+    -- Memory layouts saved for older Roblox builds are never used again.
+    local okV, rbx = pcall(getrbxversion)
+    local current = "rivals_layout_" .. ((okV and type(rbx) == "string" and rbx:match("[%w%-]+")) or "unknown") .. ".json"
+    local old = {}
+    for _, dir in ipairs({"", "."}) do
+        local okL, files = pcall(listfiles, dir)
+        if okL and type(files) == "table" and #files > 0 then
+            for _, path in ipairs(files) do
+                local name = tostring(path):match("([^/\\]+)$") or ""
+                if name:match("^rivals_layout_.+%.json$") and name ~= current then old[#old + 1] = name end
+            end
+            break
+        end
+    end
+    if #old > 0 then
+        local del = delfile
+        add("warn", #old .. " saved layout(s) from older Roblox builds", "Unused - safe to delete.",
+            type(del) == "function" and function()
+                local n = 0
+                for _, name in ipairs(old) do if pcall(del, name) then n = n + 1 end end
+                state.status = "Deleted " .. n .. " old layout file(s)."
+            end or nil)
+    end
+    for _, f in ipairs(SCRIPT_FILES) do
+        local okF, has = pcall(isfile, f)
+        if okF and has then add("warn", "A local copy of the changer (" .. f .. ") is used instead of the published one",
+            "Delete it from Matcha's workspace unless you're testing.") break end
+    end
+    state.diag, state.diagAt = out, tick()
+    return out
+end
+shared.setupCheck = SETTINGS_PAGES.setupCheck
+
+SETTINGS_PAGES[4] = function(x, y, w, cx, cy, h)
+    local log = type(_G.__RSC_LOG) == "table" and _G.__RSC_LOG or {}
+    text("Changer log", cx, cy + 6, C.text, 14, 5, true)
+    text(#log == 0 and "Empty - it fills when the changer runs." or (#log .. " lines this session."), cx, cy + 26, C.faint, 12, 5)
+    if button(x + w - 720, cy, 150, 30, "Setup check") then pcall(SETTINGS_PAGES.setupCheck) end
+    if button(x + w - 560, cy, 150, 30, "Run checks", true) then pcall(SETTINGS_PAGES.diagnose) end
+    if button(x + w - 400, cy, 200, 30, "Copy output for support") then
+        local ok = pcall(setclipboard, SETTINGS_PAGES.support())
+        state.status = ok and "Copied - paste it to whoever is helping you." or "Copying isn't supported here."
+    end
+    if button(x + w - 190, cy, 170, 30, "Clear") then _G.__RSC_LOG = {}; state.diag = nil end
+    local top, bottom = cy + 50, y + (h or 524) - 54
+    -- The checks' results, above the log.
+    if state.diag then
+        local LEVEL = {ok = {"OK", C.good}, info = {"i", C.dim}, warn = {"!", C.accent}, fail = {"X", C.bad}}
+        for _, d in ipairs(state.diag) do
+            if top + 16 > bottom - 40 then break end
+            local lv = LEVEL[d[1]] or LEVEL.warn
+            text(lv[1], cx, top, lv[2], 12, 5, true)
+            text(fitText(d[2] .. (d[3] and ("  -  " .. d[3]) or ""), w - (d[4] and 160 or 90), 12), cx + 30, top, (d[1] == "ok" or d[1] == "info") and C.dim or C.text, 12, 5)
+            if d[4] and button(x + w - 90, top - 3, 60, 20, "Fix") then
+                pcall(d[4])
+                pcall(SETTINGS_PAGES.setupCheck)
+                break
+            end
+            top = top + (d[4] and 22 or 18)
+        end
+        line(cx, top + 2, x + w - 20, top + 2, C.line, 3, 1)
+        top = top + 10
+    end
+    local rows = math.max(1, math.floor((bottom - top) / 16))
+    local first = scroller("logView", cx, top, w - 52, bottom - top, #log, rows)
+    for i = 1, rows do
+        local l = log[first + i]
+        if l then
+            local col = l:find("^%-%-%-%-") and C.text or ((l:find("rror") or l:find("ouldn't") or l:find("problem"))
+                and C.accent or C.dim)
+            text(fitText(l, w - 60, 12), cx, top + (i - 1) * 16, col, 12, 5)
+        end
+    end
+end
+SETTINGS_PAGES[5] = function(x, _, w, cx, cy)
+    text("Skin changer by Martini", cx, cy + 14, C.dim, 13, 5, true)
+    text("mr.vage - Main Contributor for the GUI", cx, cy + 36, C.dim, 12, 5)
+    text("Sorta copied from Gain's external", cx, cy + 56, C.faint, 12, 5)
+    text("dantekarati - Contributor for the idea", cx, cy + 76, C.faint, 12, 5)
+    local rx2 = x + math.floor(w / 2)
+    text("Main testers/supporters: choperr0333 aka @Giounis", rx2, cy + 16, C.faint, 12, 5)
+    text("Site: " .. SITE, rx2, cy + 36, C.faint, 12, 5)
+    state.supportId = state.supportId or supportId() or "unavailable"
+    text("Support ID: " .. state.supportId, rx2, cy + 76, C.dim, 12, 5)
+    text("Gain's Discord: https://discord.gg/RHbxDSe8Z", rx2, cy + 56, C.faint, 12, 5)
+end
+local function drawSettings(x, y, w, h)
+    rect(x, y, w, h, C.panel, 2, 8)
+    local pg = segmented(x + 20, y + 14, 480, 28, SETTINGS_PAGES.names, state.settingsPage)
+    if pg then state.settingsPage = pg end
+    SETTINGS_PAGES[state.settingsPage](x, y, w, x + 20, y + 58, h)
+end
+
+-- The window
+
+local TABS = {"Skins", "Cosmetics", "Visuals", "Misc", "Sounds", "Settings"}
+local DRAW = {Skins = drawSkins, Cosmetics = drawCosmetics, Visuals = drawVisuals, Misc = drawMisc, Sounds = drawSounds,
+    Settings = drawSettings}
+local function viewport()
+    local ok, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end)
+    return ok and vp or V2(1920, 1080)
+end
+local win = {w = 840, h = 660}
+do
+    local vp = viewport()
+    win.x = math.floor(math.max(10, (vp.X - win.w) / 2))
+    win.y = math.floor(math.max(40, (vp.Y - win.h) / 2))
+end
+local grabbed, lastInputGrab = nil, nil
+
+-- The first-run notice: it has to be read before anything else shows, and its
+-- button unlocks after a few seconds. Seen once, it is remembered in the
+-- settings file (shared by both GUIs).
+local NOTICE = {
+    "All of the functions of the script are undetected. The only detectable way is to enable Device Spoof, "
+        .. "but the chances of a ban by using it are extremely unlikely.",
+    "You can swap between your own skins. Example: you own Event Horizon and set Event Horizon > Keyper. "
+        .. "If you equip Event Horizon, it will show Keyper.",
+    "Demanding questions about the mentioned stuff in this notice will get you blacklisted.",
+    "The script gives this PC a support ID, made on your PC from Matcha's hardware ID and scrambled. "
+        .. "It is not sent anywhere: it shows in the console, and a blacklisted ID can't run the script.",
+}
+NOTICE.seconds = 10
+local noticeLines, noticeWidth
+local function drawNotice(x, y, w, h)
+    state.noticeStart = state.noticeStart or tick()
+    local left = math.ceil(NOTICE.seconds - (tick() - state.noticeStart))
+    local px, pw = x + 70, w - 140
+    -- Wrapped once per width: measuring text every frame is slow.
+    if noticeWidth ~= pw then
+        noticeLines, noticeWidth = {}, pw
+        for _, para in ipairs(NOTICE) do
+            local line = ""
+            for word in para:gmatch("%S+") do
+                local try = line == "" and word or (line .. " " .. word)
+                if line ~= "" and textWidth(try, 14) > pw then
+                    noticeLines[#noticeLines + 1] = line
+                    line = word
+                else
+                    line = try
+                end
+            end
+            if line ~= "" then noticeLines[#noticeLines + 1] = line end
+            noticeLines[#noticeLines + 1] = ""
+        end
+    end
+    local cy = y + 36
+    -- A red title with a soft glow behind it (the same text, larger and faint).
+    local red = RGB(255, 45, 60)
+    rect(x + w / 2 - 90, cy - 6, 180, 38, red, 3, 19, 0.12)
+    rect(x + w / 2 - 74, cy - 2, 148, 30, red, 3, 15, 0.16)
+    text("NOTICE!", x + w / 2, cy, red, 22, 5, true, true)
+    cy = cy + 52
+    for _, l in ipairs(noticeLines) do
+        if l ~= "" then text(l, px, cy, RGB(255, 194, 51), 14, 5) end
+        cy = cy + (l == "" and 12 or 22)
+    end
+    local bw, ready = 280, left <= 0
+    local by = math.max(cy + 16, y + h - 84)
+    if button(x + (w - bw) / 2, by, bw, 38, ready and "I've read and accept" or ("I've read and accept  (" .. left .. ")"), ready, not ready) then
+        state.noticeSeen = true
+        saveSettings()
+    end
+end
+
+local function drawWindow(slide)
+    local vp = viewport()
+    -- A wider canvas gives the redesigned navigation and content area room.
+    win.w = math.floor(math.max(700, math.min(state.winW or 900, vp.X - 20)))
+    win.h = math.floor(math.max(480, math.min(state.winH or 660, vp.Y - 40)))
+    local x, y, w, h = win.x, win.y + math.floor(slide or 0), win.w, win.h
+
+    if M.press and not slide and over(x + w - 18, y + h - 18, 18, 18) then
+        state.resizing = {M.x - w, M.y - h}
+    end
+    if state.resizing then
+        if M.down then
+            state.winW = math.floor(math.max(700, math.min(vp.X - 20, M.x - state.resizing[1])))
+            state.winH = math.floor(math.max(480, math.min(vp.Y - 40, M.y - state.resizing[2])))
+            M.dragged = true
+        else
+            state.resizing = nil
+            saveSettings()
+        end
+    end
+
+    -- Drag from the top title strip.
+    if M.press and not slide and not state.resizing and over(x, y, w - 60, 46) then
+        grabbed = {M.x - x, M.y - y}
+    end
+    if not M.down then grabbed = nil end
+    if grabbed then
+        win.x = math.floor(math.max(0, math.min(vp.X - 60, M.x - grabbed[1])))
+        win.y = math.floor(math.max(0, math.min(vp.Y - 46, M.y - grabbed[2])))
+        x, y = win.x, win.y
+        M.dragged = true
+    end
+
+    -- Window shell.
+    rect(x - 1, y - 1, w + 2, h + 2, C.line, 0, 13)
+    rect(x, y, w, h, C.bg, 1, 12)
+    rect(x, y, w, 48, C.panel, 1, 12)
+    line(x + 1, y + 48, x + w - 1, y + 48, C.line, 2, 1)
+
+    -- Brand and compact session status.
+    circle(x + 23, y + 24, 10, C.accent, 8, true)
+    circle(x + 23, y + 24, 4, C.bg, 8, true)
+    text("RIVALS", x + 42, y + 10, C.text, 15, 5, true)
+    text("SKIN STUDIO", x + 42 + textWidth("RIVALS ", 15, true), y + 12, C.accent, 11, 5, true)
+    text("COSMETIC CONFIGURATION", x + 42, y + 29, C.faint, 9, 5, true)
+    local busy = shared.busy or upstreamBusy()
+    local statusText = busy and "APPLYING" or (state.dirty and "UNSAVED CHANGES" or "READY")
+    local statusColor = busy and C.accent or (state.dirty and C.text or C.good)
+    circle(x + w - 142, y + 24, 4, statusColor, 7, true)
+    text(statusText, x + w - 132, y + 17, statusColor, 10, 5, true)
+    if button(x + w - 38, y + 11, 26, 25, "x") then state.open = false end
+
+    if not state.noticeSeen then
+        drawNotice(x, y + 48, w, h - 48)
+        circle(M.x, M.y, 2, C.accent, 9, true)
+        return over(x, y, w, h)
+    end
+
+    -- Persistent left navigation rail.
+    local sx, sy, sw = x + 12, y + 60, 148
+    local sh = h - 112
+    rect(sx, sy, sw, sh, C.panel, 2, 9)
+    text("WORKSPACE", sx + 13, sy + 13, C.faint, 10, 5, true)
+
+    local labels = {
+        Skins = "Skin library",
+        Cosmetics = "Cosmetics",
+        Visuals = "Visuals",
+        Misc = "Miscellaneous",
+        Sounds = "Sound pack",
+        Settings = "Settings"
+    }
+    local hints = {
+        Skins = "WEAPONS",
+        Cosmetics = "WRAPS & ITEMS",
+        Visuals = "WORLD & HUD",
+        Misc = "EXTRAS",
+        Sounds = "AUDIO",
+        Settings = "PREFERENCES"
+    }
+    local navY = sy + 34
+    for i, name in ipairs(TABS) do
+        local rowY = navY + (i - 1) * 48
+        local selected = state.tab == name
+        local hot = over(sx + 7, rowY, sw - 14, 40)
+        if selected then
+            rect(sx + 7, rowY, sw - 14, 40, C.card, 3, 7)
+            rect(sx + 7, rowY + 8, 3, 24, C.accent, 4, 1)
+        elseif hot then
+            rect(sx + 7, rowY, sw - 14, 40, C.bg, 3, 7)
+        end
+        text(string.format("%02d", i), sx + 19, rowY + 7, selected and C.accent or C.faint, 10, 5, true)
+        text(labels[name] or name, sx + 43, rowY + 6, selected and C.text or C.dim, 12, 5, selected)
+        text(hints[name] or "", sx + 43, rowY + 22, C.faint, 8, 5, true)
+        if clicked(sx + 7, rowY, sw - 14, 40) then
+            state.tab = name
+            focus = nil
+        end
+    end
+
+    -- Sidebar footer.
+    local footY = sy + sh - 48
+    line(sx + 12, footY - 8, sx + sw - 12, footY - 8, C.line, 2, 1)
+    text("MATCHA CLIENT", sx + 13, footY + 1, C.faint, 9, 5, true)
+    text("Right Shift  ·  Toggle", sx + 13, footY + 17, C.dim, 9, 5)
+
+    -- Main content header and page canvas.
+    local cx, cw = sx + sw + 14, w - sw - 40
+    local title = labels[state.tab] or state.tab
+    text(title, cx + 2, y + 65, C.text, 19, 5, true)
+    text("Configure your personal cosmetic setup.", cx + 3, y + 89, C.faint, 10, 5)
+    local pageY = y + 112
+    local pageH = h - (pageY - y) - 48
+    DRAW[state.tab](cx, pageY, cw, pageH)
+
+    -- Bottom action bar.
+    local fy = y + h - 40
+    line(x, fy - 2, x + w, fy - 2, C.line, 2, 1)
+    local prog = busy and type(_G.__RSC_PROGRESS) == "table" and _G.__RSC_PROGRESS
+    if prog and (prog[1] or 0) < 100 then
+        local pw = math.min(240, cw - 190)
+        rect(cx + 2, fy + 14, pw, 7, C.card, 3, 5)
+        rect(cx + 2, fy + 14, math.max(4, pw * (prog[1] or 0) / 100), 7, C.accent, 4, 5)
+        text(fitText(tostring(prog[2]) .. "  " .. (prog[1] or 0) .. "%", 180, 10),
+            cx + pw + 12, fy + 11, C.dim, 10, 5)
+    else
+        local message = (busy and "Working  ·  " or "") .. tostring(state.status)
+        text(fitText(message, cw - 190, 10), cx + 2, fy + 12,
+            state.dirty and C.text or C.dim, 10, 5)
+    end
+    local hint = keyName(state.toggleKey) .. " to hide"
+    text(hint, x + w - 190 - textWidth(hint, 10), fy + 12, C.faint, 10, 5)
+    if button(x + w - 172, fy + 5, 160, 28, state.dirty and "Save & Apply" or "Apply", true, busy) then
+        job("Applying...", apply)
+    end
+
+    -- Resize grip.
+    for i = 0, 2 do
+        line(x + w - 4 - i * 5, y + h - 3, x + w - 3, y + h - 4 - i * 5,
+            state.resizing and C.accent or C.faint, 6, 1)
+    end
+    circle(M.x, M.y, 2, C.accent, 9, true)
+    return over(x, y, w, h)
+end
+
+local appliedAccent
+local function captureKey()
+    for vk in pairs(KEY_NAMES) do
+        local ok, down = pcall(iskeypressed, vk)
+        down = ok and down == true
+        if down and not state.bindHeld[vk] then
+            local which = state.binding
+            state.binding = false
+            if vk ~= 0x1B then
+                if which == "panic" then state.panicKey = vk else state.toggleKey = vk end
+                saveSettings()
+            end
+            keyState[vk] = true -- so the new key doesn't toggle on this same press
+            return
+        end
+        if not down then state.bindHeld[vk] = nil end
+    end
+    local ok, esc = pcall(iskeypressed, 0x1B)
+    if ok and esc then state.binding = false end
+end
+
+-- Opening pulls the window up into place while it fades in; closing drops it
+-- back down and fades it out. `shown` runs 0 (hidden) to 1 (open).
+local ANIM = {open = 0.3, close = 0.22, slide = 48}
+local shown, lastFrame = 0, nil
+
+local function frame()
+    if tick() - (state.aliveAt or 0) >= 5 then
+        state.aliveAt = tick()
+        pcall(function()
+            local okT, stamp = pcall(os.date, "%m-%d %H:%M:%S")
+            writefile("rivals_alive.txt", (okT and stamp or "?") .. "  server " .. tostring(game.JobId):sub(1, 8)
+                .. "  open=" .. tostring(state.open) .. "  tab=" .. tostring(state.tab) .. "  busy=" .. tostring(_G.__RIVALS_SKIN_CHANGER_BUSY ~= nil) .. "\n")
+        end)
+    end
+    readInput()
+    if state.accent ~= appliedAccent then appliedAccent = state.accent; applyAccent(state.accent) end
+    if state.binding then
+        captureKey()
+    elseif keyHit(state.toggleKey) then
+        state.open = not state.open; focus = nil
+    elseif state.panicKey and keyHit(state.panicKey) and not shared.busy and not upstreamBusy() then
+        job("Putting the game's look back...", function() apply(true) end)
+    end
+    local now = tick()
+    local dt = math.min(0.05, now - (lastFrame or now))
+    lastFrame = now
+    if state.open then shown = math.min(1, shown + dt / ANIM.open)
+    else shown = math.max(0, shown - dt / ANIM.close) end
+
+    local keys = focus ~= nil or (state.binding ~= false and state.binding ~= nil)
+    if not keys then
+        for _, vk in ipairs({0x21, 0x22, 0x26, 0x28, 0x1B, 0x0D}) do
+            local okK, down = pcall(iskeypressed, vk)
+            if okK and down then keys = true break end
+        end
+    end
+    local changed = M.x ~= state.paintX or M.y ~= state.paintY or M.down or M.press or M.release or M.wheel ~= 0
+        or keys or (shown > 0 and shown < 1) or state.status ~= state.paintStatus or state.tab ~= state.paintTab
+    local idle = now - (state.paintAt or 0)
+    if not changed and ((shown == 0 and state.paintedHidden) or (shown > 0 and idle < 0.1)) then
+        return
+    end
+    state.paintX, state.paintY, state.paintStatus, state.paintTab, state.paintAt = M.x, M.y, state.status, state.tab, now
+    state.paintedHidden = shown == 0
+
+    beginFrame()
+    local overWindow = false
+    if shown > 0 then
+        local eased = 1 - (1 - shown) ^ 3
+        if state.open and focus then typeInto(focus) end
+        -- A click anywhere ends typing; a click in a box focuses it again.
+        if M.press and focus then focus = nil end
+        -- Clicks only count once the window is fully out.
+        if shown < 1 then M.press, M.release = false, false end
+        Fade = eased
+        overWindow = drawWindow(shown < 1 and (1 - eased) * ANIM.slide or nil)
+        Fade = 1
+    end
+    endFrame()
+    M.wheel = 0 -- a turn outside a list doesn't scroll the next page
+    -- Keep clicks and typing on the window from reaching the game.
+    local grab = state.open and (overWindow or focus ~= nil or state.binding ~= false and state.binding ~= nil)
+    if grab ~= lastInputGrab and type(setrobloxinput) == "function" then
+        lastInputGrab = grab
+        pcall(setrobloxinput, not grab)
+    end
+end
+
+local alive = true
+local function stop()
+    if M.wheelConn then pcall(function() M.wheelConn:Disconnect() end) end
+    alive = false
+    if _G.__RivalsGuiSession == guiToken then _G.__RivalsGuiSession = nil end
+    pcall(wipe)
+    if type(setrobloxinput) == "function" then pcall(setrobloxinput, true) end
+end
+-- What is on screen right now, as text: for checking the layout from a script.
+local function dump()
+    local out = {}
+    for i, o in ipairs(Pool.tx) do
+        local c = Cache.tx[i]
+        if c.Visible then out[#out + 1] = string.format("%d,%d %s", c.Positionx, c.Positiony, c.Text) end
+    end
+    local shown = 0
+    for _ in pairs(shownImages) do shown = shown + 1 end
+    out[#out + 1] = "images shown: " .. shown
+    return table.concat(out, "\n")
+end
+_G.__RivalsDrawnGui = {stop = stop, state = state, dump = dump, win = win}
+
+-- Auto-apply, once per server, like the menu-tab GUI.
+local function autoApplyOnJoin()
+    task.spawn(function()
+        while alive and _G.__RivalsGuiSession == guiToken do
+            local okFile, hasFile = pcall(isfile, SETTINGS)
+            if not state.settingsRead and okFile and hasFile then pcall(loadSettings) end
+            local context = state.autoApply and currentContext()
+            local key = context and context.key
+            if key ~= state.aaCandidate then state.aaCandidate, state.aaSince = key, tick() end
+            if key and tick() - (state.aaSince or tick()) < 2 then key = nil end
+            local applied = _G.__RIVALS_SKIN_CHANGER_STATE
+            if key and _G.__RivalsGuiAutoApplied ~= key and applied and applied.wfAddr == context.wf
+                and (not applied.jobId or applied.jobId == game.JobId) then
+                _G.__RivalsGuiAutoApplied = key
+            elseif key and _G.__RivalsGuiAutoApplied ~= key and not shared.busy and not upstreamBusy() then
+                _G.__RivalsGuiAutoApplied = key
+                if isfile(FILE) and readfile(FILE):find("%S") then
+                    if #catalog.weapons == 0 then pcall(loadCatalog) end
+                    -- The last run never finished: this one is skins only.
+                    local crashed = history.crashedStep()
+                    if crashed and not state.safeMode then
+                        state.safeOnce = true
+                        local msg = "The last apply stopped at \"" .. crashed:sub(1, 60) .. "\" - this one is skins only. Save & Apply brings the rest back."
+                        print("[Rivals GUI] " .. msg)
+                        if type(notify) == "function" then pcall(notify, msg, "Rivals Skin Changer", 10) end
+                        _G.__RSC_CRUMB("GUI: auto-apply in safe mode after an unfinished run")
+                    end
+                    _G.__RSC_CRUMB("GUI: auto-apply")
+                    job("Auto-applying...", apply)
+                end
+            end
+            task.wait(2)
+        end
+    end)
+end
+
+pcall(loadConfig)
+pcall(loadSettings)
+pcall(prefs.load)
+-- Started by autoexec, the window stays hidden until its key is pressed
+-- (Settings > Window on autoexec). Most autoexec folders hold just the
+-- loadstring line, not autoexec.lua, so the flag is often missing. Matcha
+-- clears _G on every join and teleport (and scripts can't see its autoexec
+-- folder), so the GUI's first start since joining counts as autoexec too.
+local startedHidden = false
+local firstSinceJoin = not _G.__RivalsGuiStarted
+_G.__RivalsGuiStarted = true
+if _G.__RivalsGuiFromAutoexec or firstSinceJoin then
+    _G.__RivalsGuiFromAutoexec = nil
+    if not state.showOnAutoexec then state.open, startedHidden = false, true end
+end
+-- The notice is shown straight away the first time, however it was started.
+if not state.noticeSeen then state.open, startedHidden = true, false end
+task.spawn(function()
+    local ok, err = pcall(loadCatalog)
+    if not ok then state.status = "Lists failed: " .. tostring(err):sub(1, 80) end
+end)
+
+task.spawn(function()
+    local lastError
+    while alive and _G.__RivalsGuiSession == guiToken do
+        if otherGame() then
+            print("[Rivals GUI] Not RIVALS - the GUI stays off in this game.")
+            break
+        end
+        local ok, err = pcall(frame)
+        if not ok and tostring(err) ~= lastError then
+            lastError = tostring(err)
+            print("[Rivals GUI] " .. lastError)
+        end
+        if state.unload then break end
+        task.wait()
+    end
+    stop()
+end)
+autoApplyOnJoin()
+if startedHidden and type(notify) == "function" then
+    pcall(notify, "Loaded - " .. keyName(state.toggleKey) .. " opens the window.", "Rivals Skin Changer", 5)
+end
+-- Roblox updated since the last time: say what to expect, once per build.
+do
+    local okV, rbx = pcall(getrbxversion)
+    rbx = okV and type(rbx) == "string" and rbx:match("version%-%x+") or nil
+    if rbx and rbx ~= state.lastRbx then
+        if state.lastRbx then
+            local msg = "Roblox updated. The changer finds its offsets by itself; if skins stop applying, "
+                .. "wait for a script update and check the Log page."
+            state.status = msg
+            if type(notify) == "function" then pcall(notify, msg, "Rivals Skin Changer", 10) end
+        end
+        state.lastRbx = rbx
+        saveSettings()
+    end
+end
+print("[Rivals GUI] Drawn window ready - " .. keyName(state.toggleKey) .. " shows and hides it."
+    .. (state.autoApply and " Auto-apply is on." or ""))
