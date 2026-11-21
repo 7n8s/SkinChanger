@@ -1251,9 +1251,9 @@ local V2, RGB = Vector2.new, Color3.fromRGB
 local FONT = (Drawing.Fonts and (Drawing.Fonts.System or Drawing.Fonts.UI)) or 1
 local FONT_BOLD = (Drawing.Fonts and Drawing.Fonts.SystemBold) or FONT
 local C = {
-    bg = RGB(15, 16, 21), bar = RGB(19, 20, 27), panel = RGB(22, 24, 31), card = RGB(29, 31, 40),
-    cardHover = RGB(37, 40, 52), line = RGB(44, 47, 60), text = RGB(226, 229, 236), dim = RGB(138, 144, 160),
-    faint = RGB(90, 96, 112), good = RGB(80, 210, 120), bad = RGB(240, 90, 90),
+    bg = RGB(9, 12, 19), bar = RGB(12, 17, 27), panel = RGB(14, 20, 31), card = RGB(20, 29, 43),
+    cardHover = RGB(27, 40, 58), line = RGB(34, 49, 68), text = RGB(235, 243, 250), dim = RGB(147, 166, 184),
+    faint = RGB(91, 111, 132), good = RGB(77, 220, 160), bad = RGB(255, 102, 117),
 }
 -- The accent and the shades made from it; picked in Settings.
 local ACCENTS = {"568cff", "8b5cf6", "ec4899", "ef4444", "f97316", "eab308", "22c55e", "14b8a6", "06b6d4", "e5e7eb"}
@@ -1512,12 +1512,13 @@ local function textbox(id, x, y, w, h, placeholder)
     if clicked(x, y, w, h) then focus = id end
     return value
 end
-local function button(x, y, w, h, label, primary, disabled)
-    local hot = not disabled and over(x, y, w, h)
-    rect(x, y, w, h, primary and (hot and C.accentHot or C.accent) or (hot and C.cardHover or C.card), 3, 5)
-    if not primary then border(x, y, w, h, C.line, 3, 5) end
-    text(label, x + w / 2, y + (h - 13) / 2, disabled and C.faint or (primary and C.onAccent or C.text), 13, 5, primary, true)
-    return not disabled and clicked(x, y, w, h)
+local function button(x,y,w,h,label,primary,disabled)
+ local hot=not disabled and over(x,y,w,h)
+ local fill=primary and (hot and C.accentHot or C.accent) or (hot and C.cardHover or C.card)
+ rect(x,y,w,h,fill,3,7); border(x,y,w,h,primary and C.accentHot or C.line,4,7)
+ if primary then rect(x+1,y+h-3,w-2,2,C.onAccent,5,1,0.25) end
+ text(label,x+w/2,y+(h-13)/2,disabled and C.faint or (primary and C.onAccent or C.text),12,6,primary,true)
+ return not disabled and clicked(x,y,w,h)
 end
 -- A row of choices; returns the index clicked.
 local function segmented(x, y, w, h, labels, selected)
@@ -3696,221 +3697,134 @@ local function drawSettings(x, y, w, h)
     SETTINGS_PAGES[state.settingsPage](x, y, w, x + 20, y + 58, h)
 end
 
--- The window
-
-local TABS = {"Skins", "Cosmetics", "Visuals", "Misc", "Sounds", "Settings"}
-local DRAW = {Skins = drawSkins, Cosmetics = drawCosmetics, Visuals = drawVisuals, Misc = drawMisc, Sounds = drawSounds,
-    Settings = drawSettings}
-local function viewport()
-    local ok, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end)
-    return ok and vp or V2(1920, 1080)
-end
-local win = {w = 840, h = 660}
-do
-    local vp = viewport()
-    win.x = math.floor(math.max(10, (vp.X - win.w) / 2))
-    win.y = math.floor(math.max(40, (vp.Y - win.h) / 2))
-end
-local grabbed, lastInputGrab = nil, nil
-
--- The first-run notice: it has to be read before anything else shows, and its
--- button unlocks after a few seconds. Seen once, it is remembered in the
--- settings file (shared by both GUIs).
-local NOTICE = {
-    "All of the functions of the script are undetected. The only detectable way is to enable Device Spoof, "
-        .. "but the chances of a ban by using it are extremely unlikely.",
-    "You can swap between your own skins. Example: you own Event Horizon and set Event Horizon > Keyper. "
-        .. "If you equip Event Horizon, it will show Keyper.",
-    "Demanding questions about the mentioned stuff in this notice will get you blacklisted.",
-    "The script gives this PC a support ID, made on your PC from Matcha's hardware ID and scrambled. "
-        .. "It is not sent anywhere: it shows in the console, and a blacklisted ID can't run the script.",
+-- NEXUS: replacement interface shell. Existing page modules and config logic remain intact.
+local TABS={"Skins","Cosmetics","Visuals","Misc","Sounds","Settings"}
+local DRAW={Skins=drawSkins,Cosmetics=drawCosmetics,Visuals=drawVisuals,Misc=drawMisc,Sounds=drawSounds,Settings=drawSettings}
+local META={
+ Skins={"01","SKIN WORKSHOP","Browse weapon finishes and build your loadout."},
+ Cosmetics={"02","COSMETIC VAULT","Wraps, finishers and charms in one place."},
+ Visuals={"03","VISUAL SYSTEMS","Tune the world, interface and visual effects."},
+ Misc={"04","EXTRA MODULES","Additional options and quality-of-life controls."},
+ Sounds={"05","AUDIO LAB","Configure sound effects and preview behaviour."},
+ Settings={"06","PREFERENCES","Personalise the interface and configuration."},
 }
-NOTICE.seconds = 10
-local noticeLines, noticeWidth
-local function drawNotice(x, y, w, h)
-    state.noticeStart = state.noticeStart or tick()
-    local left = math.ceil(NOTICE.seconds - (tick() - state.noticeStart))
-    local px, pw = x + 70, w - 140
-    -- Wrapped once per width: measuring text every frame is slow.
-    if noticeWidth ~= pw then
-        noticeLines, noticeWidth = {}, pw
-        for _, para in ipairs(NOTICE) do
-            local line = ""
-            for word in para:gmatch("%S+") do
-                local try = line == "" and word or (line .. " " .. word)
-                if line ~= "" and textWidth(try, 14) > pw then
-                    noticeLines[#noticeLines + 1] = line
-                    line = word
-                else
-                    line = try
-                end
-            end
-            if line ~= "" then noticeLines[#noticeLines + 1] = line end
-            noticeLines[#noticeLines + 1] = ""
-        end
-    end
-    local cy = y + 36
-    -- A red title with a soft glow behind it (the same text, larger and faint).
-    local red = RGB(255, 45, 60)
-    rect(x + w / 2 - 90, cy - 6, 180, 38, red, 3, 19, 0.12)
-    rect(x + w / 2 - 74, cy - 2, 148, 30, red, 3, 15, 0.16)
-    text("NOTICE!", x + w / 2, cy, red, 22, 5, true, true)
-    cy = cy + 52
-    for _, l in ipairs(noticeLines) do
-        if l ~= "" then text(l, px, cy, RGB(255, 194, 51), 14, 5) end
-        cy = cy + (l == "" and 12 or 22)
-    end
-    local bw, ready = 280, left <= 0
-    local by = math.max(cy + 16, y + h - 84)
-    if button(x + (w - bw) / 2, by, bw, 38, ready and "I've read and accept" or ("I've read and accept  (" .. left .. ")"), ready, not ready) then
-        state.noticeSeen = true
-        saveSettings()
-    end
+local function viewport()
+ local ok,v=pcall(function() return workspace.CurrentCamera.ViewportSize end)
+ return ok and v or V2(1920,1080)
 end
-
+local win={w=980,h=700}
+do local v=viewport(); win.x=math.floor(math.max(10,(v.X-win.w)/2)); win.y=math.floor(math.max(40,(v.Y-win.h)/2)) end
+local grabbed,lastInputGrab=nil,nil
+local NOTICE={"This interface configures the cosmetic options exposed by the script.","Choose your items, review the configuration, then use Apply to save your selection.","Some changes may require a respawn or a fresh server to become visible."}
+NOTICE.seconds=5
+local noticeLines,noticeWidth
+local function drawNotice(x,y,w,h)
+ state.noticeStart=state.noticeStart or tick()
+ local left=math.ceil(NOTICE.seconds-(tick()-state.noticeStart))
+ local room=w-150
+ if noticeWidth~=room then
+  noticeLines,noticeWidth={},room
+  for _,p in ipairs(NOTICE) do
+   local row=""
+   for word in p:gmatch("%S+") do
+    local nextRow=row=="" and word or row.." "..word
+    if row~="" and textWidth(nextRow,14)>room then noticeLines[#noticeLines+1]=row; row=word else row=nextRow end
+   end
+   if row~="" then noticeLines[#noticeLines+1]=row end
+   noticeLines[#noticeLines+1]=""
+  end
+ end
+ local cx=x+w/2
+ rect(x+34,y+30,w-68,h-60,C.panel,2,12); border(x+34,y+30,w-68,h-60,C.line,3,12)
+ rect(cx-25,y+76,50,4,C.accent,4,2)
+ text("WELCOME TO NEXUS",cx,y+105,C.text,22,6,true,true)
+ text("RIVALS  /  COSMETIC CONTROL",cx,y+140,C.accent,10,6,true,true)
+ local cy=y+190
+ for _,row in ipairs(noticeLines) do if row~="" then text(row,x+80,cy,C.dim,14,6) end; cy=cy+(row=="" and 10 or 23) end
+ local ready=left<=0
+ if button(cx-125,y+h-105,250,40,ready and "ENTER WORKSPACE" or ("PLEASE WAIT  "..left.."s"),true,not ready) then
+  state.noticeSeen=true; saveSettings()
+ end
+end
 local function drawWindow(slide)
-    local vp = viewport()
-    -- A wider canvas gives the redesigned navigation and content area room.
-    win.w = math.floor(math.max(700, math.min(state.winW or 900, vp.X - 20)))
-    win.h = math.floor(math.max(480, math.min(state.winH or 660, vp.Y - 40)))
-    local x, y, w, h = win.x, win.y + math.floor(slide or 0), win.w, win.h
+ local vp=viewport()
+ win.w=math.floor(math.max(760,math.min(state.winW or 980,vp.X-20)))
+ win.h=math.floor(math.max(520,math.min(state.winH or 700,vp.Y-40)))
+ local x,y,w,h=win.x,win.y+math.floor(slide or 0),win.w,win.h
+ if M.press and not slide and over(x+w-18,y+h-18,18,18) then state.resizing={M.x-w,M.y-h} end
+ if state.resizing then
+  if M.down then
+   state.winW=math.floor(math.max(760,math.min(vp.X-20,M.x-state.resizing[1])))
+   state.winH=math.floor(math.max(520,math.min(vp.Y-40,M.y-state.resizing[2])))
+   M.dragged=true
+  else state.resizing=nil; saveSettings() end
+ end
+ if M.press and not slide and not state.resizing and over(x,y,w-54,48) then grabbed={M.x-x,M.y-y} end
+ if not M.down then grabbed=nil end
+ if grabbed then
+  win.x=math.floor(math.max(0,math.min(vp.X-60,M.x-grabbed[1])))
+  win.y=math.floor(math.max(0,math.min(vp.Y-48,M.y-grabbed[2])))
+  x,y=win.x,win.y; M.dragged=true
+ end
+ rect(x-2,y-2,w+4,h+4,RGB(4,7,12),0,13)
+ rect(x,y,w,h,C.bg,1,12); border(x,y,w,h,C.line,2,12)
+ rect(x,y,w,58,C.bar,2,12); line(x+1,y+58,x+w-1,y+58,C.line,3,1)
+ rect(x+18,y+15,28,28,C.accent,4,8); text("N",x+32,y+19,C.onAccent,17,6,true,true)
+ text("NEXUS",x+57,y+10,C.text,16,6,true)
+ text("RIVALS  /  COSMETIC CONTROL",x+58,y+33,C.faint,9,6,true)
+ local busy=shared.busy or upstreamBusy()
+ local status=busy and "PROCESSING" or (state.dirty and "UNSAVED" or "SYSTEM READY")
+ local statusColor=busy and C.accent or (state.dirty and RGB(255,190,90) or C.good)
+ rect(x+w-190,y+18,8,8,statusColor,5,4); text(status,x+w-176,y+17,statusColor,10,6,true)
+ if button(x+w-42,y+14,28,28,"×",false) then state.open=false end
+ if not state.noticeSeen then drawNotice(x,y+58,w,h-58); circle(M.x,M.y,2,C.accent,10,true); return over(x,y,w,h) end
 
-    if M.press and not slide and over(x + w - 18, y + h - 18, 18, 18) then
-        state.resizing = {M.x - w, M.y - h}
-    end
-    if state.resizing then
-        if M.down then
-            state.winW = math.floor(math.max(700, math.min(vp.X - 20, M.x - state.resizing[1])))
-            state.winH = math.floor(math.max(480, math.min(vp.Y - 40, M.y - state.resizing[2])))
-            M.dragged = true
-        else
-            state.resizing = nil
-            saveSettings()
-        end
-    end
+ local sx,sy,sw=x+14,y+72,174
+ local sh=h-130
+ rect(sx,sy,sw,sh,C.panel,3,10); text("NAVIGATION",sx+15,sy+16,C.faint,9,6,true)
+ for i,name in ipairs(TABS) do
+  local ry=sy+42+(i-1)*54
+  local selected=state.tab==name
+  if selected then
+   rect(sx+8,ry,sw-16,46,C.card,4,8); rect(sx+8,ry+9,3,28,C.accent,6,2)
+   rect(sx+16,ry+5,30,30,C.accentDim,5,7)
+  elseif over(sx+8,ry,sw-16,46) then rect(sx+8,ry,sw-16,46,C.cardHover,4,8) end
+  text(string.format("%02d",i),sx+31,ry+13,selected and C.accent or C.faint,10,7,true,true)
+  text(name:upper(),sx+55,ry+8,selected and C.text or C.dim,11,7,selected)
+  text(META[name][2],sx+55,ry+25,C.faint,7,7,true)
+  if clicked(sx+8,ry,sw-16,46) then state.tab=name; focus=nil end
+ end
+ local fy=sy+sh-64
+ line(sx+12,fy-9,sx+sw-12,fy-9,C.line,4,1)
+ circle(sx+20,fy+9,3,C.good,6,true)
+ text("MATCHA SESSION",sx+31,fy+1,C.dim,9,6,true)
+ text(keyName(state.toggleKey).."  /  TOGGLE",sx+15,fy+23,C.faint,8,6)
 
-    -- Drag from the top title strip.
-    if M.press and not slide and not state.resizing and over(x, y, w - 60, 46) then
-        grabbed = {M.x - x, M.y - y}
-    end
-    if not M.down then grabbed = nil end
-    if grabbed then
-        win.x = math.floor(math.max(0, math.min(vp.X - 60, M.x - grabbed[1])))
-        win.y = math.floor(math.max(0, math.min(vp.Y - 46, M.y - grabbed[2])))
-        x, y = win.x, win.y
-        M.dragged = true
-    end
+ local cx,cw=sx+sw+16,w-sw-46
+ local meta=META[state.tab] or {"",state.tab:upper(),""}
+ text(meta[2],cx+2,y+76,C.text,18,6,true)
+ text(meta[3],cx+3,y+101,C.dim,10,6)
+ local pageY,pageH=y+126,h-(y+126-y)-58
+ rect(cx,pageY,cw,pageH,C.panel,3,10)
+ DRAW[state.tab](cx+1,pageY+1,cw-2,pageH-2)
 
-    -- Window shell.
-    rect(x - 1, y - 1, w + 2, h + 2, C.line, 0, 13)
-    rect(x, y, w, h, C.bg, 1, 12)
-    rect(x, y, w, 48, C.panel, 1, 12)
-    line(x + 1, y + 48, x + w - 1, y + 48, C.line, 2, 1)
-
-    -- Brand and compact session status.
-    circle(x + 23, y + 24, 10, C.accent, 8, true)
-    circle(x + 23, y + 24, 4, C.bg, 8, true)
-    text("RIVALS", x + 42, y + 10, C.text, 15, 5, true)
-    text("SKIN STUDIO", x + 42 + textWidth("RIVALS ", 15, true), y + 12, C.accent, 11, 5, true)
-    text("COSMETIC CONFIGURATION", x + 42, y + 29, C.faint, 9, 5, true)
-    local busy = shared.busy or upstreamBusy()
-    local statusText = busy and "APPLYING" or (state.dirty and "UNSAVED CHANGES" or "READY")
-    local statusColor = busy and C.accent or (state.dirty and C.text or C.good)
-    circle(x + w - 142, y + 24, 4, statusColor, 7, true)
-    text(statusText, x + w - 132, y + 17, statusColor, 10, 5, true)
-    if button(x + w - 38, y + 11, 26, 25, "x") then state.open = false end
-
-    if not state.noticeSeen then
-        drawNotice(x, y + 48, w, h - 48)
-        circle(M.x, M.y, 2, C.accent, 9, true)
-        return over(x, y, w, h)
-    end
-
-    -- Persistent left navigation rail.
-    local sx, sy, sw = x + 12, y + 60, 148
-    local sh = h - 112
-    rect(sx, sy, sw, sh, C.panel, 2, 9)
-    text("WORKSPACE", sx + 13, sy + 13, C.faint, 10, 5, true)
-
-    local labels = {
-        Skins = "Skin library",
-        Cosmetics = "Cosmetics",
-        Visuals = "Visuals",
-        Misc = "Miscellaneous",
-        Sounds = "Sound pack",
-        Settings = "Settings"
-    }
-    local hints = {
-        Skins = "WEAPONS",
-        Cosmetics = "WRAPS & ITEMS",
-        Visuals = "WORLD & HUD",
-        Misc = "EXTRAS",
-        Sounds = "AUDIO",
-        Settings = "PREFERENCES"
-    }
-    local navY = sy + 34
-    for i, name in ipairs(TABS) do
-        local rowY = navY + (i - 1) * 48
-        local selected = state.tab == name
-        local hot = over(sx + 7, rowY, sw - 14, 40)
-        if selected then
-            rect(sx + 7, rowY, sw - 14, 40, C.card, 3, 7)
-            rect(sx + 7, rowY + 8, 3, 24, C.accent, 4, 1)
-        elseif hot then
-            rect(sx + 7, rowY, sw - 14, 40, C.bg, 3, 7)
-        end
-        text(string.format("%02d", i), sx + 19, rowY + 7, selected and C.accent or C.faint, 10, 5, true)
-        text(labels[name] or name, sx + 43, rowY + 6, selected and C.text or C.dim, 12, 5, selected)
-        text(hints[name] or "", sx + 43, rowY + 22, C.faint, 8, 5, true)
-        if clicked(sx + 7, rowY, sw - 14, 40) then
-            state.tab = name
-            focus = nil
-        end
-    end
-
-    -- Sidebar footer.
-    local footY = sy + sh - 48
-    line(sx + 12, footY - 8, sx + sw - 12, footY - 8, C.line, 2, 1)
-    text("MATCHA CLIENT", sx + 13, footY + 1, C.faint, 9, 5, true)
-    text("Right Shift  ·  Toggle", sx + 13, footY + 17, C.dim, 9, 5)
-
-    -- Main content header and page canvas.
-    local cx, cw = sx + sw + 14, w - sw - 40
-    local title = labels[state.tab] or state.tab
-    text(title, cx + 2, y + 65, C.text, 19, 5, true)
-    text("Configure your personal cosmetic setup.", cx + 3, y + 89, C.faint, 10, 5)
-    local pageY = y + 112
-    local pageH = h - (pageY - y) - 48
-    DRAW[state.tab](cx, pageY, cw, pageH)
-
-    -- Bottom action bar.
-    local fy = y + h - 40
-    line(x, fy - 2, x + w, fy - 2, C.line, 2, 1)
-    local prog = busy and type(_G.__RSC_PROGRESS) == "table" and _G.__RSC_PROGRESS
-    if prog and (prog[1] or 0) < 100 then
-        local pw = math.min(240, cw - 190)
-        rect(cx + 2, fy + 14, pw, 7, C.card, 3, 5)
-        rect(cx + 2, fy + 14, math.max(4, pw * (prog[1] or 0) / 100), 7, C.accent, 4, 5)
-        text(fitText(tostring(prog[2]) .. "  " .. (prog[1] or 0) .. "%", 180, 10),
-            cx + pw + 12, fy + 11, C.dim, 10, 5)
-    else
-        local message = (busy and "Working  ·  " or "") .. tostring(state.status)
-        text(fitText(message, cw - 190, 10), cx + 2, fy + 12,
-            state.dirty and C.text or C.dim, 10, 5)
-    end
-    local hint = keyName(state.toggleKey) .. " to hide"
-    text(hint, x + w - 190 - textWidth(hint, 10), fy + 12, C.faint, 10, 5)
-    if button(x + w - 172, fy + 5, 160, 28, state.dirty and "Save & Apply" or "Apply", true, busy) then
-        job("Applying...", apply)
-    end
-
-    -- Resize grip.
-    for i = 0, 2 do
-        line(x + w - 4 - i * 5, y + h - 3, x + w - 3, y + h - 4 - i * 5,
-            state.resizing and C.accent or C.faint, 6, 1)
-    end
-    circle(M.x, M.y, 2, C.accent, 9, true)
-    return over(x, y, w, h)
+ local barY=y+h-48
+ line(x+14,barY-2,x+w-14,barY-2,C.line,4,1)
+ local prog=busy and type(_G.__RSC_PROGRESS)=="table" and _G.__RSC_PROGRESS
+ if prog and (prog[1] or 0)<100 then
+  local pw=math.min(230,cw-210)
+  rect(cx+2,barY+18,pw,5,C.card,4,3)
+  rect(cx+2,barY+18,math.max(4,pw*(prog[1] or 0)/100),5,C.accent,5,3)
+  text(fitText(tostring(prog[2]).."  "..(prog[1] or 0).."%",180,9),cx+pw+12,barY+13,C.dim,9,6)
+ else
+  text(fitText((busy and "Working  /  " or "")..tostring(state.status),cw-205,9),cx+2,barY+13,state.dirty and RGB(255,190,90) or C.dim,9,6)
+ end
+ local hint=keyName(state.toggleKey).." TO HIDE"
+ text(hint,x+w-202-textWidth(hint,9),barY+15,C.faint,9,6,true)
+ if button(x+w-180,barY+5,166,32,state.dirty and "SAVE  +  APPLY" or "APPLY CONFIG",true,busy) then job("Applying...",apply) end
+ for i=0,2 do line(x+w-4-i*5,y+h-3,x+w-3,y+h-4-i*5,state.resizing and C.accent or C.faint,7,1) end
+ circle(M.x,M.y,2,C.accent,10,true)
+ return over(x,y,w,h)
 end
 
 local appliedAccent
