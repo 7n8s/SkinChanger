@@ -3766,31 +3766,42 @@ local function drawWindow(slide)
   win.y=math.floor(math.max(0,math.min(vp.Y-48,M.y-grabbed[2])))
   x,y=win.x,win.y; M.dragged=true
  end
- rect(x-2,y-2,w+4,h+4,RGB(4,7,12),0,13)
- rect(x,y,w,h,C.bg,1,12); border(x,y,w,h,C.line,2,12)
- rect(x,y,w,58,C.bar,2,12); line(x+1,y+58,x+w-1,y+58,C.line,3,1)
- rect(x+18,y+15,28,28,C.accent,4,8); text("R",x+32,y+19,C.onAccent,17,6,true,true)
- text("Rivals.",x+57,y+10,C.text,16,6,true)
- text("COSMETIC CONTROL",x+58,y+33,C.faint,9,6,true)
- local busy=shared.busy or upstreamBusy()
- local status=busy and "PROCESSING" or (state.dirty and "UNSAVED" or "SYSTEM READY")
- local statusColor=busy and C.accent or (state.dirty and RGB(255,190,90) or C.good)
- rect(x+w-190,y+18,8,8,statusColor,5,4); text(status,x+w-176,y+17,statusColor,10,6,true)
- if button(x+w-42,y+14,28,28,"×",false) then state.open=false end
- if not state.noticeSeen then drawNotice(x,y+58,w,h-58); circle(M.x,M.y,2,C.accent,10,true); return over(x,y,w,h) end
+ rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,18,0.45)
+ rect(x,y,w,h,C.bg,1,16,0.84); border(x,y,w,h,C.line,2,16)
+ line(x+16,y+1,x+w-16,y+1,RGB(255,255,255),2,1)
 
- local sx,sy,sw=x+14,y+72,174
- local sh=h-130
- rect(sx,sy,sw,sh,C.panel,3,14); border(sx,sy,sw,sh,C.line,4,14)
- text("BROWSE",sx+15,sy+16,C.faint,9,6,true)
+ -- UnnamedEnhancements-style full-height glass sidebar
+ local sx,sy,sw,sh=x+12,y+12,196,h-24
+ rect(sx,sy,sw,sh,C.panel,2,14,0.72); border(sx,sy,sw,sh,C.line,3,14)
+ line(sx+14,sy+1,sx+sw-14,sy+1,RGB(255,255,255),3,1)
+ rect(sx+14,sy+14,30,30,C.accent,4,9); text("R",sx+29,sy+19,C.onAccent,17,6,true,true)
+ text("Rivals.",sx+54,sy+12,C.text,16,6,true)
+ text("COSMETIC CONTROL",sx+54,sy+32,C.faint,8,6,true)
+
+ if M.press and not slide and not state.resizing and over(x+sw+24,y,w-sw-78,54) then grabbed={M.x-x,M.y-y} end
+
+ -- Right-side glass topbar
+ local cx,cw=sx+sw+14,w-sw-38
+ rect(cx,sy,cw,48,C.panel,2,14,0.72); border(cx,sy,cw,48,C.line,3,14)
+ local busy=shared.busy or upstreamBusy()
+ local status=busy and "Processing" or (state.dirty and "Unsaved" or "System Ready")
+ local statusColor=busy and C.accent or (state.dirty and RGB(255,190,90) or C.good)
+ rect(cx+cw-168,sy+20,8,8,statusColor,5,4); text(status,cx+cw-154,sy+17,statusColor,11,6,true)
+ if button(cx+cw-40,sy+10,28,28,"×",false) then state.open=false end
+
+ if not state.noticeSeen then drawNotice(cx,sy+60,cw,h-84); circle(M.x,M.y,2,C.accent,10,true); return over(x,y,w,h) end
+
+ text("BROWSE",sx+16,sy+62,C.faint,9,6,true)
  for i,name in ipairs(TABS) do
-  local ry=sy+40+(i-1)*46
+  local ry=sy+82+(i-1)*42+(i>2 and 18 or 0)
+  if i==3 then text("CUSTOMISE",sx+16,ry-18,C.faint,9,6,true) end
   local selected=state.tab==name
   if selected then
-   rect(sx+8,ry,sw-16,38,C.card,4,9); rect(sx+8,ry+8,3,22,C.accent,6,2)
-  elseif over(sx+8,ry,sw-16,38) then rect(sx+8,ry,sw-16,38,C.cardHover,4,9) end
-  text(name,sx+22,ry+10,selected and C.text or C.dim,13,7,selected)
-  if clicked(sx+8,ry,sw-16,38) then state.tab=name; focus=nil end
+   rect(sx+8,ry,sw-16,36,C.card,4,10,0.85); border(sx+8,ry,sw-16,36,C.line,5,10)
+   rect(sx+8,ry+8,3,20,C.accent,6,2)
+  elseif over(sx+8,ry,sw-16,36) then rect(sx+8,ry,sw-16,36,C.cardHover,4,10,0.65) end
+  text(name,sx+22,ry+9,selected and C.text or C.dim,13,7,selected)
+  if clicked(sx+8,ry,sw-16,36) then state.tab=name; focus=nil end
  end
  local fy=sy+sh-64
  line(sx+12,fy-9,sx+sw-12,fy-9,C.line,4,1)
@@ -3798,7 +3809,6 @@ local function drawWindow(slide)
  text("ACTIVE SESSION",sx+31,fy+1,C.dim,9,6,true)
  text(keyName(state.toggleKey).."  /  TOGGLE",sx+15,fy+23,C.faint,8,6)
 
- local cx,cw=sx+sw+16,w-sw-46
  local meta=META[state.tab] or {"",state.tab:upper(),""}
  text(meta[2],cx+2,y+76,C.text,18,6,true)
  text(meta[3],cx+3,y+101,C.dim,10,6)
