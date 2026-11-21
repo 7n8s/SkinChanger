@@ -618,8 +618,7 @@ local function loadSettings()
         state.lastRbx = body:match("lastrbx%s*=%s*(version%-%x+)")
     end
     if auto == nil then
-        local okScan, found = pcall(autoexecLoadsGui)
-        auto = okScan and found or false
+        auto = true
     end
     state.autoApply = auto
 end
