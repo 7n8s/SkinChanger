@@ -3766,30 +3766,38 @@ local function drawWindow(slide)
   win.y=math.floor(math.max(0,math.min(vp.Y-48,M.y-grabbed[2])))
   x,y=win.x,win.y; M.dragged=true
  end
- rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,18,0.45)
- rect(x,y,w,h,C.bg,1,16,0.84); border(x,y,w,h,C.line,2,16)
- line(x+16,y+1,x+w-16,y+1,RGB(255,255,255),2,1)
+ rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,20,0.40)
+ rect(x,y,w,h,C.bg,1,18,0.62); border(x,y,w,h,C.line,2,18)
+ line(x+18,y+1,x+w-18,y+1,RGB(255,255,255),2,1)
 
  -- UnnamedEnhancements-style full-height glass sidebar
  local sx,sy,sw,sh=x+12,y+12,196,h-24
- rect(sx,sy,sw,sh,C.panel,2,14,0.72); border(sx,sy,sw,sh,C.line,3,14)
+ rect(sx,sy,sw,sh,C.panel,2,16,0.72); border(sx,sy,sw,sh,C.line,3,16)
  line(sx+14,sy+1,sx+sw-14,sy+1,RGB(255,255,255),3,1)
  rect(sx+14,sy+14,30,30,C.accent,4,9); text("R",sx+29,sy+19,C.onAccent,17,6,true,true)
  text("Rivals.",sx+54,sy+12,C.text,16,6,true)
- text("COSMETIC CONTROL",sx+54,sy+32,C.faint,8,6,true)
+ text("COSMETIC CONTROL",sx+54,sy+32,C.accent,8,6,true)
 
  if M.press and not slide and not state.resizing and over(x+sw+24,y,w-sw-78,54) then grabbed={M.x-x,M.y-y} end
 
- -- Right-side glass topbar
+ -- Right-side glass topbar with active view title
  local cx,cw=sx+sw+14,w-sw-38
- rect(cx,sy,cw,48,C.panel,2,14,0.72); border(cx,sy,cw,48,C.line,3,14)
+ local meta=META[state.tab] or {"",state.tab:upper(),""}
+ rect(cx,sy,cw,50,C.panel,2,16,0.72); border(cx,sy,cw,50,C.line,3,16)
+ line(cx+14,sy+1,cx+cw-14,sy+1,RGB(255,255,255),3,1)
+ text(state.tab,cx+18,sy+8,C.text,16,6,true)
+ text(meta[3],cx+18,sy+29,C.dim,10,6)
  local busy=shared.busy or upstreamBusy()
  local status=busy and "Processing" or (state.dirty and "Unsaved" or "System Ready")
  local statusColor=busy and C.accent or (state.dirty and RGB(255,190,90) or C.good)
- rect(cx+cw-168,sy+20,8,8,statusColor,5,4); text(status,cx+cw-154,sy+17,statusColor,11,6,true)
- if button(cx+cw-40,sy+10,28,28,"×",false) then state.open=false end
+ rect(cx+cw-168,sy+21,8,8,statusColor,5,4); text(status,cx+cw-154,sy+18,statusColor,11,6,true)
+ if button(cx+cw-40,sy+11,28,28,"×",false) then state.open=false end
 
- if not state.noticeSeen then drawNotice(cx,sy+60,cw,h-84); circle(M.x,M.y,2,C.accent,10,true); return over(x,y,w,h) end
+ if not state.noticeSeen then drawNotice(cx,sy+62,cw,h-86); circle(M.x,M.y,2,C.accent,10,true); return over(x,y,w,h) end
+
+ -- Main content glass card
+ rect(cx,sy+60,cw,sh-118,C.panel,2,16,0.68); border(cx,sy+60,cw,sh-118,C.line,3,16)
+ line(cx+14,sy+61,cx+cw-14,sy+61,RGB(255,255,255),3,1)
 
  text("BROWSE",sx+16,sy+62,C.faint,9,6,true)
  for i,name in ipairs(TABS) do
