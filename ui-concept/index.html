@@ -3,189 +3,336 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rivals</title>
+<title>Rivals. — Skin Changer</title>
 <style>
-  :root{--accent:#568cff;--text:#f5f7ff;--muted:rgba(235,238,255,.5);--line:rgba(255,255,255,.1)}
+  /* ── UnnamedEnhancements design tokens ── */
+  :root{
+    --cozy-accent:#8DFFC1;
+    --glass-tint:#0C1418;
+    --glass-alpha:.72;
+    --glass-blur:26px;
+    --glass-border:.42;
+    --glass-radius:22px;
+    --muted:#a3a6a1;
+    --subtle:#808680;
+    --line:rgba(228,229,219,.11);
+    --accent-soft:color-mix(in srgb, var(--cozy-accent) 10%, transparent);
+    --panel:color-mix(in srgb, var(--glass-tint) calc(var(--glass-alpha)*100%), transparent);
+    --glass-highlight:rgba(255,255,255,calc(.035 + var(--glass-border)*.07));
+    --glass-shadow:rgba(0,0,0,calc(.16 + var(--glass-alpha)*.12));
+  }
   *{box-sizing:border-box;margin:0;padding:0}
   body{
-    font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
-    background:#08080d;color:var(--text);min-height:100vh;
-    display:flex;align-items:center;justify-content:center;padding:32px 18px;position:relative;overflow:hidden;
+    font-family:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+    color:#edeae4;background:#141617;font-synthesis:none;color-scheme:dark;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;overflow:hidden;
   }
-  .blobs{position:fixed;inset:0;pointer-events:none}
-  .blob{position:absolute;border-radius:50%;filter:blur(80px);opacity:.4}
-  .b1{width:480px;height:480px;background:radial-gradient(circle at 30% 30%,#4f7cff,transparent 65%);top:-150px;left:-90px}
-  .b2{width:420px;height:420px;background:radial-gradient(circle at 30% 30%,#a855f7,transparent 65%);bottom:-170px;right:-70px}
+  button,input,select{font:inherit;color:inherit}
+  button{cursor:pointer;border:0;background:transparent}
+  button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--cozy-accent);outline-offset:3px}
+  ::selection{background:color-mix(in srgb,var(--cozy-accent) 35%,transparent)}
+  ::-webkit-scrollbar{width:7px;height:7px}
+  ::-webkit-scrollbar-thumb{background:#444845;border-radius:10px;border:2px solid transparent;background-clip:padding-box}
 
-  .window{
-    width:min(880px,100%);border-radius:26px;overflow:hidden;position:relative;
-    background:linear-gradient(135deg, rgba(255,255,255,.13), rgba(255,255,255,.05) 55%, rgba(255,255,255,.07));
-    -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
-    border:1px solid var(--line);
-    box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.2);
+  .app-shell{position:relative;width:min(1080px,100%);height:min(680px,92vh);border-radius:24px;overflow:hidden;isolation:isolate;border:1px solid rgba(235,239,231,.1);box-shadow:0 30px 80px rgba(0,0,0,.5)}
+  .background-layer{position:absolute;inset:-2px;z-index:-2;background:#141617}
+  .background-shade{position:absolute;inset:0;z-index:-1;pointer-events:none;
+    background:linear-gradient(135deg,rgba(8,11,12,.08),rgba(5,8,9,.22)),radial-gradient(circle at 78% 4%,color-mix(in srgb,var(--cozy-accent) 9%,transparent),transparent 42%)}
+  .ui-scale-layer{display:grid;grid-template-columns:242px minmax(0,1fr);height:100%}
+
+  /* ── Sidebar ── */
+  .sidebar{display:flex;flex-direction:column;min-height:0;padding:26px 18px 16px;
+    background:linear-gradient(145deg,rgba(255,255,255,.035),transparent 32%),color-mix(in srgb,var(--glass-tint) 76%,transparent);
+    -webkit-backdrop-filter:blur(calc(var(--glass-blur) + 8px)) saturate(145%);backdrop-filter:blur(calc(var(--glass-blur) + 8px)) saturate(145%);
+    border-right:1px solid rgba(235,239,231,calc(var(--glass-border)*.3));
+    box-shadow:inset -1px 0 0 rgba(255,255,255,.025),12px 0 40px rgba(0,0,0,.08)}
+  .brand{display:flex;align-items:center;text-align:left;gap:12px;padding:0 9px 30px;width:100%}
+  .brand-mark{display:grid;place-items:center;width:39px;height:45px;border:1px solid color-mix(in srgb,var(--cozy-accent) 35%,transparent);border-radius:14px;color:var(--cozy-accent);background:var(--accent-soft);font-size:20px;font-weight:700;flex:none}
+  .brand strong{display:block;font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-size:1.58rem;font-weight:650;letter-spacing:-.06em;line-height:1.1}
+  .brand-period{color:var(--cozy-accent)}
+  .brand small{display:block;color:var(--subtle);font-size:.55rem;letter-spacing:.17em;margin-top:5px;text-transform:uppercase}
+  .nav-list{min-height:0;overflow-y:auto;padding:0 4px 8px;margin:0 -4px}
+  .nav-group+.nav-group{margin-top:24px}
+  .nav-caption{display:block;color:var(--subtle);text-transform:uppercase;letter-spacing:.15em;font-size:.62rem;padding:0 12px 10px}
+  .nav-item{display:flex;align-items:center;gap:12px;width:100%;padding:12px;text-align:left;color:#a3aaa6;border:1px solid transparent;border-radius:10px;margin:3px 0;transition:background .22s,color .22s,transform .22s}
+  .nav-item .ico{font-size:14px;width:18px;text-align:center;flex:none}
+  .nav-item span.txt{flex:1;font-size:.88rem}
+  .nav-item:hover{color:#eeeae3;background:rgba(255,255,255,.04);transform:translateX(2px)}
+  .nav-item.active{color:var(--cozy-accent);background:var(--accent-soft);border-color:color-mix(in srgb,var(--cozy-accent) 15%,transparent)}
+  .active-mark{width:5px;height:5px;background:var(--cozy-accent);border-radius:50%;flex:none}
+  .sidebar-bottom{margin-top:auto;padding-top:20px;flex-shrink:0}
+  .current-device{width:100%;text-align:left;display:flex;align-items:center;gap:10px;border:1px solid rgba(235,239,231,.11);border-radius:12px;padding:12px 10px;
+    background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+    -webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03);color:#edeae4}
+  .current-device:hover{border-color:color-mix(in srgb,var(--cozy-accent) 30%,transparent)}
+  .device-thumb{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;font-size:20px;border:1px solid rgba(255,255,255,.12);flex:none}
+  .current-device>span{display:grid;gap:3px;min-width:0}
+  .current-device small{display:flex;align-items:center;gap:6px;color:var(--subtle);font-size:.54rem;letter-spacing:.1em;text-transform:uppercase}
+  .current-device strong{font-size:.78rem;line-height:1.3}
+  .current-device em{font-size:.65rem;color:var(--muted);font-style:normal}
+  .device-dot{display:inline-block;width:5px;height:5px;background:#b5c9a5;border-radius:50%;box-shadow:0 0 8px rgba(181,201,165,.35)}
+  .settings-nav{margin-top:12px}
+  .sidebar-footer{display:flex;justify-content:space-between;font-size:.52rem;color:#69716c;padding:12px 9px 0;letter-spacing:.08em;text-transform:uppercase}
+
+  /* ── Content ── */
+  .content{overflow:auto;min-width:0;padding:34px clamp(22px,3.5vw,56px) 44px;scrollbar-gutter:stable}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:24px;max-width:1140px;margin-left:auto;margin-right:auto}
+  .eyebrow{display:block;font-size:.62rem;font-weight:600;letter-spacing:.16em;color:var(--cozy-accent);text-transform:uppercase}
+  .topbar h1{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-size:2.2rem;font-weight:620;line-height:1.08;letter-spacing:-.045em;margin:8px 0}
+  .topbar p{font-size:.88rem;color:var(--muted);line-height:1.65}
+  .active-profile{display:flex;align-items:center;gap:12px;border:1px solid rgba(235,239,231,.13);
+    background:linear-gradient(135deg,rgba(255,255,255,.055),rgba(255,255,255,.015));
+    -webkit-backdrop-filter:blur(18px) saturate(140%);backdrop-filter:blur(18px) saturate(140%);
+    border-radius:12px;padding:11px 14px;color:var(--cozy-accent);min-width:170px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.045),0 10px 25px rgba(0,0,0,.08)}
+  .active-profile small{display:block;font-size:.52rem;letter-spacing:.12em;color:var(--subtle);margin-bottom:3px;text-transform:uppercase}
+  .active-profile select{padding:0;border:0;background:transparent;font-size:.88rem;max-width:160px;color:#ece9e3;outline:none}
+
+  .channel-content{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;max-width:1140px;margin:0 auto;align-items:start}
+  .panel{
+    background:linear-gradient(135deg,var(--glass-highlight),transparent 36%),linear-gradient(320deg,color-mix(in srgb,var(--cozy-accent) 3.5%,transparent),transparent 42%),var(--panel);
+    border:1px solid rgba(225,233,222,calc(.08 + var(--glass-border)*.34));border-radius:var(--glass-radius);padding:24px;
+    -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(150%) contrast(103%);backdrop-filter:blur(var(--glass-blur)) saturate(150%) contrast(103%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,calc(.035 + var(--glass-border)*.06)),inset 1px 0 0 rgba(255,255,255,.018),0 18px 44px var(--glass-shadow),0 2px 7px rgba(0,0,0,.12);
+    min-width:0;animation:lg-rise .5s cubic-bezier(.22,1,.36,1) both;
   }
-  header{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line)}
-  .mark{width:26px;height:26px;border-radius:9px;background:var(--accent);display:grid;place-items:center;font-weight:800;font-size:13px;color:#fff}
-  header b{font-size:13.5px;font-weight:600}
-  header span{font-size:12.5px;color:var(--muted)}
+  .panel:nth-child(2){animation-delay:.06s}
+  @keyframes lg-rise{from{opacity:0;transform:translateY(10px) scale(.992)}to{opacity:1;transform:none}}
+  .panel h2{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-size:1.25rem;letter-spacing:-.035em;font-weight:650}
+  .panel .sub{color:var(--muted);font-size:.85rem;line-height:1.6;margin-top:5px}
+  .panel-head{margin-bottom:18px}
 
-  .layout{display:grid;grid-template-columns:56px 1fr 240px;min-height:520px}
-  .rail{padding:14px 10px;display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line);align-items:center}
-  .rail button{width:36px;height:36px;border-radius:12px;border:0;background:transparent;color:var(--muted);font-size:16px;cursor:pointer;display:grid;place-items:center;transition:.15s}
-  .rail button:hover{background:rgba(255,255,255,.08);color:var(--text)}
-  .rail button.active{background:rgba(255,255,255,.13);color:var(--text)}
-  .rail .spacer{flex:1}
+  /* controls — Unnamed style */
+  .search{width:100%;background:rgba(0,0,0,.16);border:1px solid var(--line);border-radius:9px;padding:11px 13px;color:#edeae4;outline:none;margin-bottom:14px}
+  .search::placeholder{color:var(--subtle)}
+  .search:focus{border-color:color-mix(in srgb,var(--cozy-accent) 45%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--cozy-accent) 18%,transparent)}
+  .filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px}
+  .filters button{border:1px solid rgba(235,239,231,.13);background:rgba(255,255,255,.04);color:var(--muted);border-radius:999px;padding:7px 13px;font-size:.78rem;transition:.2s}
+  .filters button:hover{color:#edeae4;border-color:rgba(255,255,255,.22)}
+  .filters button.active{color:var(--cozy-accent);background:var(--accent-soft);border-color:color-mix(in srgb,var(--cozy-accent) 28%,transparent)}
 
-  .main{padding:20px;min-width:0}
-  .search{display:flex;align-items:center;gap:9px;padding:11px 15px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line)}
-  .search input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font-size:13.5px}
-  .search input::placeholder{color:var(--muted)}
-
-  .chips{display:flex;gap:16px;margin:16px 2px 14px}
-  .chip{background:none;border:0;color:var(--muted);font-size:12.5px;font-weight:600;cursor:pointer;padding:2px 0;transition:.15s}
-  .chip:hover{color:var(--text)}
-  .chip.active{color:var(--text);box-shadow:0 2px 0 var(--text)}
-
-  /* skin options — just thumb, name, check */
-  .skin-list{display:flex;flex-direction:column}
-  .skin-row{display:flex;align-items:center;gap:11px;padding:7px 10px;border-radius:14px;cursor:pointer;transition:background .15s}
-  .skin-row:hover{background:rgba(255,255,255,.06)}
-  .skin-row.selected{background:rgba(255,255,255,.1)}
-  .skin-thumb{width:32px;height:32px;border-radius:10px;flex:none;display:grid;place-items:center;font-size:16px;border:1px solid rgba(255,255,255,.12)}
+  .skin-list{display:flex;flex-direction:column;gap:4px}
+  .skin-row{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;text-align:left;color:#a3aaa6;border:1px solid transparent;border-radius:10px;transition:background .22s,color .22s,transform .22s}
+  .skin-row:hover{color:#eeeae3;background:rgba(255,255,255,.04);transform:translateX(2px)}
+  .skin-row.selected{color:var(--cozy-accent);background:var(--accent-soft);border-color:color-mix(in srgb,var(--cozy-accent) 15%,transparent)}
+  .skin-thumb{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:17px;border:1px solid rgba(255,255,255,.12);flex:none}
   .skin-text{flex:1;min-width:0}
-  .skin-text b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .skin-text small{color:var(--muted);font-size:11.5px}
-  .skin-check{width:20px;height:20px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--accent);color:#fff;font-size:11px;font-weight:800;opacity:0;transition:.15s}
+  .skin-text b{display:block;font-size:.88rem;font-weight:600;color:#ece9e3}
+  .skin-row.selected .skin-text b{color:var(--cozy-accent)}
+  .skin-text small{color:var(--subtle);font-size:.72rem}
+  .skin-check{width:18px;height:18px;border-radius:50%;background:var(--cozy-accent);color:#242827;display:grid;place-items:center;font-size:11px;font-weight:800;opacity:0;flex:none}
   .skin-row.selected .skin-check{opacity:1}
-  .empty{color:var(--muted);font-size:13px;padding:16px 4px}
+  .empty{color:var(--subtle);font-size:.85rem;padding:14px 4px}
 
-  .preview{border-left:1px solid var(--line);padding:20px 18px;display:flex;flex-direction:column;background:rgba(255,255,255,.03)}
-  .hero{height:130px;border-radius:20px;border:1px solid var(--line);display:grid;place-items:center;font-size:52px;position:relative;overflow:hidden;margin-bottom:14px}
-  .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg, rgba(255,255,255,.16), transparent 40%, rgba(0,0,0,.3))}
-  .hero span{position:relative;z-index:1}
-  .preview h2{font-size:17px;font-weight:650;letter-spacing:-.01em}
-  .preview .w{color:var(--muted);font-size:12.5px;margin:3px 0 16px}
-  .progress{height:5px;background:rgba(255,255,255,.1);border-radius:999px;overflow:hidden;margin-bottom:10px;display:none}
-  .progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
-  .btn{width:100%;padding:11px;border-radius:999px;border:0;cursor:pointer;background:rgba(255,255,255,.94);color:#0b0e1a;font-size:13px;font-weight:650;transition:.15s}
-  .btn:hover{background:#fff}
+  /* preview panel */
+  .hero{height:150px;border-radius:16px;border:1px solid rgba(255,255,255,.12);display:grid;place-items:center;font-size:56px;margin:16px 0;position:relative;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+  .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.14),transparent 45%,rgba(0,0,0,.28))}
+  .hero span{position:relative;z-index:1;filter:drop-shadow(0 16px 20px rgba(0,0,0,.45))}
+  .preview-name{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-size:1.35rem;font-weight:650;letter-spacing:-.03em}
+  .preview-weapon{color:var(--muted);font-size:.85rem;margin:4px 0 16px}
+  .meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+  .meta div{border:1px solid rgba(235,239,231,.11);border-radius:12px;padding:11px 13px;background:rgba(255,255,255,.03)}
+  .meta small{display:block;color:var(--subtle);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
+  .meta b{font-size:.85rem;font-weight:600}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+  .toggle-row span{font-size:.85rem}
+  .toggle-row small{display:block;color:var(--subtle);font-size:.72rem;margin-top:2px}
+  input[type=checkbox]{appearance:none;width:36px;height:21px;flex-shrink:0;border-radius:20px;background:#414746;position:relative;cursor:pointer;transition:background .2s}
+  input[type=checkbox]::after{content:"";width:15px;height:15px;background:#d8dcd7;border-radius:50%;position:absolute;top:3px;left:3px;transition:transform .2s}
+  input[type=checkbox]:checked{background:var(--cozy-accent)}
+  input[type=checkbox]:checked::after{transform:translateX(15px);background:#242827}
+  .slider-row{padding:12px 0 4px;border-top:1px solid var(--line)}
+  .slider-row label{display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:8px}
+  .slider-row label b{color:var(--cozy-accent);font-weight:600;font-variant-numeric:tabular-nums}
+  input[type=range]{appearance:none;width:100%;height:24px;background:transparent;cursor:pointer;accent-color:var(--cozy-accent)}
+  input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:20px;background:rgba(215,219,216,.19)}
+  input[type=range]::-webkit-slider-thumb{appearance:none;width:17px;height:17px;margin-top:-6px;border:3px solid var(--cozy-accent);border-radius:50%;background:#202422;box-shadow:0 0 0 5px color-mix(in srgb,var(--cozy-accent) 9%,transparent)}
+  .progress{height:6px;border-radius:20px;background:rgba(215,219,216,.15);overflow:hidden;margin:14px 0;display:none}
+  .progress i{display:block;height:100%;width:0;background:var(--cozy-accent);transition:width .2s}
+  .primary-button{width:100%;padding:13px;border-radius:12px;background:var(--cozy-accent);color:#242827;font-weight:700;font-size:.9rem;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 10px 24px -8px color-mix(in srgb,var(--cozy-accent) 55%,transparent);transition:.2s}
+  .primary-button:hover{transform:translateY(-1px);filter:brightness(1.05)}
+  .primary-button:disabled{opacity:.6;cursor:wait;transform:none}
+  .secondary-button{width:100%;margin-top:9px;padding:11px;border-radius:12px;border:1px solid rgba(235,239,231,.14);background:rgba(255,255,255,.04);color:#edeae4;font-size:.85rem;transition:.2s}
+  .secondary-button:hover{background:rgba(255,255,255,.08)}
 
   .view{display:none}.view.active{display:block}
-  .plain{padding:10px 2px;font-size:13.5px;color:var(--muted);line-height:1.7}
-  .plain b{color:var(--text);font-weight:600}
-  .list{display:flex;flex-direction:column}
-  .item{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:14px}
-  .item:hover{background:rgba(255,255,255,.05)}
-  .item b{font-size:13px;font-weight:600}
-  .item .go{margin-left:auto;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px;font-weight:600;cursor:pointer}
-  .swatches{display:flex;gap:7px;margin-left:auto}
-  .sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer}
-  .sw.active{border-color:#fff}
-  .switch{width:40px;height:23px;border-radius:999px;background:rgba(255,255,255,.14);position:relative;cursor:pointer;margin-left:auto;flex:none}
-  .switch::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:.2s}
-  .switch.on{background:var(--accent)} .switch.on::after{left:19px}
-  .toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,14px);opacity:0;pointer-events:none;padding:10px 15px;border-radius:999px;font-size:12.5px;font-weight:600;z-index:50;transition:.25s;background:rgba(20,22,38,.88);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--line)}
-  .toast.show{opacity:1;transform:translate(-50%,0)}
-  @media(max-width:760px){.layout{grid-template-columns:52px 1fr}.preview{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}}
+  .swatches{display:flex;gap:8px}
+  .sw{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+  .sw.active{border-color:#edeae4;transform:scale(1.08)}
+  .toast{position:fixed;right:22px;bottom:22px;z-index:50;display:flex;gap:11px;align-items:center;background:color-mix(in srgb,var(--glass-tint) 88%,transparent);-webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%);border:1px solid color-mix(in srgb,var(--cozy-accent) 30%,transparent);border-radius:14px;padding:13px 16px;box-shadow:0 18px 44px rgba(0,0,0,.4);opacity:0;transform:translateY(10px);pointer-events:none;transition:.25s}
+  .toast.show{opacity:1;transform:none}
+  .toast .tick{width:26px;height:26px;border-radius:50%;background:var(--cozy-accent);color:#242827;display:grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+  .toast b{font-size:.85rem;display:block}.toast small{color:var(--muted);font-size:.75rem}
+  @media(max-width:900px){.ui-scale-layer{grid-template-columns:210px 1fr}.channel-content{grid-template-columns:1fr}}
+  @media(max-width:640px){.ui-scale-layer{grid-template-columns:1fr}.sidebar{display:none}.topbar{flex-direction:column;align-items:flex-start}}
 </style>
 </head>
 <body>
-<div class="blobs"><div class="blob b1"></div><div class="blob b2"></div></div>
 
-<div class="window">
-  <header><div class="mark">R</div><div><b>Rivals</b> <span>Skin Changer</span></div></header>
+<div class="app-shell">
+  <div class="background-layer"></div>
+  <div class="background-shade"></div>
 
-  <div class="layout">
-    <nav class="rail" id="nav">
-      <button class="active" data-view="skins" title="Skins">◆</button>
-      <button data-view="presets" title="Presets">▣</button>
-      <button data-view="cosmetics" title="Cosmetics">✦</button>
-      <button data-view="visuals" title="Visuals">◐</button>
-      <button data-view="sounds" title="Sounds">♪</button>
-      <div class="spacer"></div>
-      <button data-view="settings" title="Settings">⚙</button>
-    </nav>
+  <div class="ui-scale-layer">
+    <aside class="sidebar">
+      <button class="brand" onclick="showView('skins')">
+        <span class="brand-mark">R</span>
+        <span><strong>Rivals<span class="brand-period">.</span></strong><small>Skin Changer</small></span>
+      </button>
 
-    <main class="main">
+      <nav class="nav-list" id="nav">
+        <div class="nav-group">
+          <span class="nav-caption">Browse</span>
+          <button class="nav-item active" data-view="skins"><span class="ico">◆</span><span class="txt">Skins</span><span class="active-mark"></span></button>
+          <button class="nav-item" data-view="presets"><span class="ico">▣</span><span class="txt">Presets</span></button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-caption">Customise</span>
+          <button class="nav-item" data-view="cosmetics"><span class="ico">✦</span><span class="txt">Cosmetics</span></button>
+          <button class="nav-item" data-view="visuals"><span class="ico">◐</span><span class="txt">Visuals</span></button>
+          <button class="nav-item" data-view="sounds"><span class="ico">♪</span><span class="txt">Sounds</span></button>
+        </div>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <button class="current-device" onclick="showView('skins')">
+          <span class="device-thumb" id="deviceThumb" style="background:#312e81">🔫</span>
+          <span>
+            <small><span class="device-dot"></span> Current weapon</small>
+            <strong id="deviceName">AK-47</strong>
+            <em id="deviceSub">Void Reaver • Primary</em>
+          </span>
+        </button>
+        <div class="settings-nav">
+          <button class="nav-item" data-view="settings"><span class="ico">⚙</span><span class="txt">Settings</span><span class="active-mark"></span></button>
+        </div>
+        <div class="sidebar-footer"><span>Concept</span><span>Mock data</span></div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="topbar">
+        <div>
+          <span class="eyebrow">Rivals Skin Changer</span>
+          <h1 id="pageTitle">Skins</h1>
+          <p>Pick a skin for your weapon. Only you see the change.</p>
+        </div>
+        <div class="active-profile">
+          <div>
+            <small>Active preset</small>
+            <select id="presetSelect" onchange="toast('Preset loaded','Midnight loadout applied (mock)')">
+              <option>Midnight</option><option>Inferno</option><option>Frost</option><option>Gold</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- SKINS -->
       <section class="view active" id="view-skins">
-        <label class="search">⌕ <input id="search" placeholder="Search skins..."></label>
-        <div class="chips" id="chips">
-          <button class="chip active" data-cat="All">All</button>
-          <button class="chip" data-cat="Primary">Primary</button>
-          <button class="chip" data-cat="Secondary">Secondary</button>
-          <button class="chip" data-cat="Melee">Melee</button>
-          <button class="chip" data-cat="Utility">Utility</button>
+        <div class="channel-content">
+          <div class="panel">
+            <div class="panel-head"><h2>Browse skins</h2><p class="sub" id="count">12 skins</p></div>
+            <input class="search" id="search" placeholder="Search skins...">
+            <div class="filters" id="chips">
+              <button class="active" data-cat="All">All</button>
+              <button data-cat="Primary">Primary</button>
+              <button data-cat="Secondary">Secondary</button>
+              <button data-cat="Melee">Melee</button>
+              <button data-cat="Utility">Utility</button>
+            </div>
+            <div class="skin-list" id="skinList"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Preview</h2><p class="sub">Selected skin</p></div>
+            <div class="hero" id="hero"><span id="heroIcon">🔫</span></div>
+            <div class="preview-name" id="heroName">Void Reaver</div>
+            <p class="preview-weapon" id="heroWeapon">AK-47 • Primary</p>
+            <div class="meta">
+              <div><small>Mode</small><b id="heroMode">Swap</b></div>
+              <div><small>Status</small><b style="color:var(--cozy-accent)">Ready</b></div>
+            </div>
+            <label class="toggle-row"><span>Auto-apply<small>Apply on join, once per server</small></span><input type="checkbox" id="autoToggle" checked></label>
+            <div class="slider-row"><label><span>Tracer speed</span><b id="tracerVal">100%</b></label><input type="range" id="tracer" min="25" max="200" value="100"></div>
+            <div class="progress" id="progress"><i id="bar"></i></div>
+            <button class="primary-button" id="applyBtn">Save &amp; Apply</button>
+            <button class="secondary-button" id="resetBtn">Reset to default</button>
+          </div>
         </div>
-        <div class="skin-list" id="skinList"></div>
       </section>
 
+      <!-- PRESETS -->
       <section class="view" id="view-presets">
-        <div class="list">
-          <div class="item"><b>🌙 Midnight</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
-          <div class="item"><b>🔥 Inferno</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
-          <div class="item"><b>❄️ Frost</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
-          <div class="item"><b>✨ Gold</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
-        </div>
-      </section>
-
-      <section class="view" id="view-cosmetics"><p class="plain"><b>Cosmetics</b> — wraps, finishers and charms, same list.</p></section>
-      <section class="view" id="view-visuals"><p class="plain"><b>Visuals</b> — skybox and lighting.</p></section>
-      <section class="view" id="view-sounds"><p class="plain"><b>Sounds</b> — hit, headshot and kill sounds.</p></section>
-
-      <section class="view" id="view-settings">
-        <div class="list">
-          <div class="item"><b>Accent</b>
-            <div class="swatches" id="swatches">
-              <div class="sw active" data-c="#568cff" style="background:#568cff"></div>
-              <div class="sw" data-c="#a855f7" style="background:#a855f7"></div>
-              <div class="sw" data-c="#ef4444" style="background:#ef4444"></div>
-              <div class="sw" data-c="#22c55e" style="background:#22c55e"></div>
-              <div class="sw" data-c="#f59e0b" style="background:#f59e0b"></div>
+        <div class="channel-content" style="grid-template-columns:1fr">
+          <div class="panel">
+            <div class="panel-head"><h2>Presets</h2><p class="sub">Saved loadouts</p></div>
+            <div class="skin-list">
+              <button class="skin-row" onclick="toast('Preset loaded','Midnight loadout (mock)')"><span class="skin-thumb" style="background:#312e81">🌙</span><span class="skin-text"><b>Midnight</b><small>AK Void • Knife Shadow • Night sky</small></span></button>
+              <button class="skin-row" onclick="toast('Preset loaded','Inferno loadout (mock)')"><span class="skin-thumb" style="background:#7f1d1d">🔥</span><span class="skin-text"><b>Inferno</b><small>M4 Inferno • Magma • Sunset sky</small></span></button>
+              <button class="skin-row" onclick="toast('Preset loaded','Frost loadout (mock)')"><span class="skin-thumb" style="background:#0c4a6e">❄️</span><span class="skin-text"><b>Frost</b><small>Glacier • Frost • Dark lighting</small></span></button>
+              <button class="skin-row" onclick="toast('Preset loaded','Gold loadout (mock)')"><span class="skin-thumb" style="background:#713f12">✨</span><span class="skin-text"><b>Gold</b><small>All gold • Golden finisher</small></span></button>
             </div>
           </div>
-          <div class="item"><b>Auto-apply</b><div class="switch on" id="autoSwitch"></div></div>
-          <div class="item"><b>Toggle key</b><button class="go" onclick="toast('Right Shift')">Right Shift</button></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-cosmetics"><div class="channel-content" style="grid-template-columns:1fr"><div class="panel"><div class="panel-head"><h2>Cosmetics</h2><p class="sub">Wraps, finishers and charms — same list, grouped by type. Season charms include a rank picker.</p></div></div></div></section>
+      <section class="view" id="view-visuals"><div class="channel-content" style="grid-template-columns:1fr"><div class="panel"><div class="panel-head"><h2>Visuals</h2><p class="sub">Skybox thumbnails and lighting: Normal, Dark, or matched to the sky.</p></div></div></div></section>
+      <section class="view" id="view-sounds"><div class="channel-content" style="grid-template-columns:1fr"><div class="panel"><div class="panel-head"><h2>Sounds</h2><p class="sub">Hit, headshot and kill sounds with preview, plus custom audio ID.</p></div></div></div></section>
+
+      <!-- SETTINGS -->
+      <section class="view" id="view-settings">
+        <div class="channel-content" style="grid-template-columns:1fr">
+          <div class="panel">
+            <div class="panel-head"><h2>Appearance</h2><p class="sub">Your colours, your space. Everything saves automatically.</p></div>
+            <label class="toggle-row"><span>Accent colour<small>Unnamed default is mint</small></span>
+              <span class="swatches" id="swatches">
+                <span class="sw active" data-c="#8DFFC1" style="background:#8DFFC1"></span>
+                <span class="sw" data-c="#7deeff" style="background:#7deeff"></span>
+                <span class="sw" data-c="#568cff" style="background:#568cff"></span>
+                <span class="sw" data-c="#ff8fab" style="background:#ff8fab"></span>
+                <span class="sw" data-c="#ffd166" style="background:#ffd166"></span>
+              </span>
+            </label>
+            <label class="toggle-row"><span>Auto-apply on join<small>Once per server</small></span><input type="checkbox" checked></label>
+            <label class="toggle-row"><span>Toggle key<small>Show / hide window</small></span><button class="secondary-button" style="width:auto;margin:0;padding:9px 16px" onclick="toast('Toggle key','Right Shift (mock)')">Right Shift</button></label>
+          </div>
         </div>
       </section>
     </main>
-
-    <aside class="preview">
-      <div class="hero" id="hero"><span id="heroIcon">🔫</span></div>
-      <h2 id="heroName">Void Reaver</h2>
-      <p class="w" id="heroWeapon">AK-47 • Primary</p>
-      <div class="progress" id="progress"><i id="bar"></i></div>
-      <button class="btn" id="applyBtn">Save &amp; Apply</button>
-    </aside>
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast"><span class="tick">✓</span><span><b id="toastTitle">Applied</b><small id="toastSub">Void Reaver (mock)</small></span></div>
 
 <script>
 const SKINS=[
-  {name:"Void Reaver",weapon:"AK-47",cat:"Primary",icon:"🔫",g:"linear-gradient(135deg,#312e81,#7c3aed)"},
-  {name:"Inferno",weapon:"M4",cat:"Primary",icon:"🔥",g:"linear-gradient(135deg,#7f1d1d,#f97316)"},
-  {name:"Glacier",weapon:"Burst Rifle",cat:"Primary",icon:"❄️",g:"linear-gradient(135deg,#0c4a6e,#38bdf8)"},
-  {name:"Golden Touch",weapon:"Desert Eagle",cat:"Secondary",icon:"✨",g:"linear-gradient(135deg,#713f12,#eab308)"},
-  {name:"Eclipse",weapon:"Revolver",cat:"Secondary",icon:"🌑",g:"linear-gradient(135deg,#111827,#6d28d9)"},
-  {name:"Neon Nights",weapon:"SMG",cat:"Secondary",icon:"💜",g:"linear-gradient(135deg,#581c87,#ec4899)"},
-  {name:"Shadow Fang",weapon:"Knife",cat:"Melee",icon:"🗡️",g:"linear-gradient(135deg,#1f2937,#111827)"},
-  {name:"Ember Blade",weapon:"Katana",cat:"Melee",icon:"⚔️",g:"linear-gradient(135deg,#7c2d12,#dc2626)"},
-  {name:"Frostbite",weapon:"Sniper",cat:"Primary",icon:"🧊",g:"linear-gradient(135deg,#155e75,#67e8f9)"},
-  {name:"Toxic",weapon:"Shotgun",cat:"Secondary",icon:"☣️",g:"linear-gradient(135deg,#14532d,#84cc16)"},
-  {name:"Royal",weapon:"Crossbow",cat:"Utility",icon:"👑",g:"linear-gradient(135deg,#4c1d95,#f59e0b)"},
-  {name:"Stealth",weapon:"RPG",cat:"Utility",icon:"🎯",g:"linear-gradient(135deg,#334155,#64748b)"}
+  {name:"Void Reaver",weapon:"AK-47",cat:"Primary",owned:true,icon:"🔫",g:"linear-gradient(135deg,#312e81,#7c3aed)"},
+  {name:"Inferno",weapon:"M4",cat:"Primary",owned:true,icon:"🔥",g:"linear-gradient(135deg,#7f1d1d,#f97316)"},
+  {name:"Glacier",weapon:"Burst Rifle",cat:"Primary",owned:false,icon:"❄️",g:"linear-gradient(135deg,#0c4a6e,#38bdf8)"},
+  {name:"Golden Touch",weapon:"Desert Eagle",cat:"Secondary",owned:true,icon:"✨",g:"linear-gradient(135deg,#713f12,#eab308)"},
+  {name:"Eclipse",weapon:"Revolver",cat:"Secondary",owned:false,icon:"🌑",g:"linear-gradient(135deg,#111827,#6d28d9)"},
+  {name:"Neon Nights",weapon:"SMG",cat:"Secondary",owned:true,icon:"💜",g:"linear-gradient(135deg,#581c87,#ec4899)"},
+  {name:"Shadow Fang",weapon:"Knife",cat:"Melee",owned:true,icon:"🗡️",g:"linear-gradient(135deg,#1f2937,#111827)"},
+  {name:"Ember Blade",weapon:"Katana",cat:"Melee",owned:false,icon:"⚔️",g:"linear-gradient(135deg,#7c2d12,#dc2626)"},
+  {name:"Frostbite",weapon:"Sniper",cat:"Primary",owned:false,icon:"🧊",g:"linear-gradient(135deg,#155e75,#67e8f9)"},
+  {name:"Toxic",weapon:"Shotgun",cat:"Secondary",owned:true,icon:"☣️",g:"linear-gradient(135deg,#14532d,#84cc16)"},
+  {name:"Royal",weapon:"Crossbow",cat:"Utility",owned:false,icon:"👑",g:"linear-gradient(135deg,#4c1d95,#f59e0b)"},
+  {name:"Stealth",weapon:"RPG",cat:"Utility",owned:true,icon:"🎯",g:"linear-gradient(135deg,#334155,#64748b)"}
 ];
 let cat="All",query="",selected=SKINS[0];
-const listEl=document.getElementById('skinList');
+const listEl=document.getElementById('skinList'),count=document.getElementById('count');
 function render(){
   const list=SKINS.filter(s=>(cat==="All"||s.cat===cat)&&s.name.toLowerCase().includes(query.toLowerCase()));
+  count.textContent=list.length+" skins";
   listEl.innerHTML=list.map(s=>`
-    <div class="skin-row ${s===selected?'selected':''}" data-name="${s.name}">
-      <div class="skin-thumb" style="background:${s.g}">${s.icon}</div>
-      <div class="skin-text"><b>${s.name}</b><small>${s.weapon} • ${s.cat}</small></div>
+    <button class="skin-row ${s===selected?'selected':''}" data-name="${s.name}">
+      <span class="skin-thumb" style="background:${s.g}">${s.icon}</span>
+      <span class="skin-text"><b>${s.name}</b><small>${s.weapon} • ${s.cat} • ${s.owned?'Swap':'Switch'}</small></span>
       <span class="skin-check">✓</span>
-    </div>`).join('')||'<p class="empty">No matches.</p>';
+    </button>`).join('')||'<p class="empty">No matches.</p>';
   listEl.querySelectorAll('.skin-row').forEach(r=>r.onclick=()=>{selected=SKINS.find(s=>s.name===r.dataset.name);render();updatePreview();});
 }
 function updatePreview(){
@@ -193,14 +340,28 @@ function updatePreview(){
   document.getElementById('heroIcon').textContent=selected.icon;
   document.getElementById('heroName').textContent=selected.name;
   document.getElementById('heroWeapon').textContent=selected.weapon+" • "+selected.cat;
+  document.getElementById('heroMode').textContent=selected.owned?"Swap":"Switch";
+  document.getElementById('deviceThumb').style.background=selected.g;
+  document.getElementById('deviceThumb').textContent=selected.icon;
+  document.getElementById('deviceName').textContent=selected.weapon;
+  document.getElementById('deviceSub').textContent=selected.name+" • "+selected.cat;
 }
+const TITLES={skins:"Skins",presets:"Presets",cosmetics:"Cosmetics",visuals:"Visuals",sounds:"Sounds",settings:"Settings"};
+function showView(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+id).classList.add('active');
+  document.getElementById('pageTitle').textContent=TITLES[id];
+  document.querySelectorAll('#nav .nav-item, .settings-nav .nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===id));
+}
+document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b)showView(b.dataset.view);});
+document.querySelector('.settings-nav').addEventListener('click',()=>showView('settings'));
 document.getElementById('search').oninput=e=>{query=e.target.value;render();};
-document.getElementById('chips').onclick=e=>{if(e.target.dataset.cat){cat=e.target.dataset.cat;document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c===e.target));render();}};
-document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(!b)return;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById('view-'+b.dataset.view).classList.add('active');};
-document.getElementById('swatches').onclick=e=>{const s=e.target.closest('.sw');if(!s)return;document.querySelectorAll('.sw').forEach(x=>x.classList.toggle('active',x===s));document.documentElement.style.setProperty('--accent',s.dataset.c);toast('Accent updated');};
-document.getElementById('autoSwitch').onclick=e=>e.target.classList.toggle('on');
-document.getElementById('applyBtn').onclick=()=>{const p=document.getElementById('progress'),bar=document.getElementById('bar');p.style.display='block';bar.style.width='0%';let n=0;const iv=setInterval(()=>{n+=20;bar.style.width=n+'%';if(n>=100){clearInterval(iv);setTimeout(()=>{p.style.display='none';toast('Applied: '+selected.name+' (mock)');},300);}},160);};
-function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000);}
+document.getElementById('chips').onclick=e=>{if(e.target.dataset.cat){cat=e.target.dataset.cat;document.querySelectorAll('#chips button').forEach(c=>c.classList.toggle('active',c===e.target));render();}};
+document.getElementById('swatches').onclick=e=>{const s=e.target.closest('.sw');if(!s)return;document.querySelectorAll('.sw').forEach(x=>x.classList.toggle('active',x===s));document.documentElement.style.setProperty('--cozy-accent',s.dataset.c);toast('Accent updated','Theme saved (mock)');};
+document.getElementById('tracer').oninput=e=>document.getElementById('tracerVal').textContent=e.target.value+'%';
+document.getElementById('applyBtn').onclick=()=>{const p=document.getElementById('progress'),bar=document.getElementById('bar');p.style.display='block';bar.style.width='0%';let n=0;const iv=setInterval(()=>{n+=20;bar.style.width=n+'%';if(n>=100){clearInterval(iv);setTimeout(()=>{p.style.display='none';toast('Applied',selected.name+' (mock)');},300);}},160);};
+document.getElementById('resetBtn').onclick=()=>toast('Reset','Default skin restored (mock)');
+function toast(t,s){document.getElementById('toastTitle').textContent=t;document.getElementById('toastSub').textContent=s;const el=document.getElementById('toast');el.classList.add('show');clearTimeout(el._h);el._h=setTimeout(()=>el.classList.remove('show'),2400);}
 render();updatePreview();
 </script>
 </body>
