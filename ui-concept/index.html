@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rivals</title>
+<style>
+  :root{--accent:#568cff;--text:#f5f7ff;--muted:rgba(235,238,255,.5);--line:rgba(255,255,255,.1)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    background:#08080d;color:var(--text);min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:32px 18px;position:relative;overflow:hidden;
+  }
+  .blobs{position:fixed;inset:0;pointer-events:none}
+  .blob{position:absolute;border-radius:50%;filter:blur(80px);opacity:.4}
+  .b1{width:480px;height:480px;background:radial-gradient(circle at 30% 30%,#4f7cff,transparent 65%);top:-150px;left:-90px}
+  .b2{width:420px;height:420px;background:radial-gradient(circle at 30% 30%,#a855f7,transparent 65%);bottom:-170px;right:-70px}
+
+  .window{
+    width:min(880px,100%);border-radius:26px;overflow:hidden;position:relative;
+    background:linear-gradient(135deg, rgba(255,255,255,.13), rgba(255,255,255,.05) 55%, rgba(255,255,255,.07));
+    -webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+    border:1px solid var(--line);
+    box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  header{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .mark{width:26px;height:26px;border-radius:9px;background:var(--accent);display:grid;place-items:center;font-weight:800;font-size:13px;color:#fff}
+  header b{font-size:13.5px;font-weight:600}
+  header span{font-size:12.5px;color:var(--muted)}
+
+  .layout{display:grid;grid-template-columns:56px 1fr 240px;min-height:520px}
+  .rail{padding:14px 10px;display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line);align-items:center}
+  .rail button{width:36px;height:36px;border-radius:12px;border:0;background:transparent;color:var(--muted);font-size:16px;cursor:pointer;display:grid;place-items:center;transition:.15s}
+  .rail button:hover{background:rgba(255,255,255,.08);color:var(--text)}
+  .rail button.active{background:rgba(255,255,255,.13);color:var(--text)}
+  .rail .spacer{flex:1}
+
+  .main{padding:20px;min-width:0}
+  .search{display:flex;align-items:center;gap:9px;padding:11px 15px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line)}
+  .search input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font-size:13.5px}
+  .search input::placeholder{color:var(--muted)}
+
+  .chips{display:flex;gap:16px;margin:16px 2px 14px}
+  .chip{background:none;border:0;color:var(--muted);font-size:12.5px;font-weight:600;cursor:pointer;padding:2px 0;transition:.15s}
+  .chip:hover{color:var(--text)}
+  .chip.active{color:var(--text);box-shadow:0 2px 0 var(--text)}
+
+  /* skin options — just thumb, name, check */
+  .skin-list{display:flex;flex-direction:column}
+  .skin-row{display:flex;align-items:center;gap:11px;padding:7px 10px;border-radius:14px;cursor:pointer;transition:background .15s}
+  .skin-row:hover{background:rgba(255,255,255,.06)}
+  .skin-row.selected{background:rgba(255,255,255,.1)}
+  .skin-thumb{width:32px;height:32px;border-radius:10px;flex:none;display:grid;place-items:center;font-size:16px;border:1px solid rgba(255,255,255,.12)}
+  .skin-text{flex:1;min-width:0}
+  .skin-text b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .skin-text small{color:var(--muted);font-size:11.5px}
+  .skin-check{width:20px;height:20px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--accent);color:#fff;font-size:11px;font-weight:800;opacity:0;transition:.15s}
+  .skin-row.selected .skin-check{opacity:1}
+  .empty{color:var(--muted);font-size:13px;padding:16px 4px}
+
+  .preview{border-left:1px solid var(--line);padding:20px 18px;display:flex;flex-direction:column;background:rgba(255,255,255,.03)}
+  .hero{height:130px;border-radius:20px;border:1px solid var(--line);display:grid;place-items:center;font-size:52px;position:relative;overflow:hidden;margin-bottom:14px}
+  .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg, rgba(255,255,255,.16), transparent 40%, rgba(0,0,0,.3))}
+  .hero span{position:relative;z-index:1}
+  .preview h2{font-size:17px;font-weight:650;letter-spacing:-.01em}
+  .preview .w{color:var(--muted);font-size:12.5px;margin:3px 0 16px}
+  .progress{height:5px;background:rgba(255,255,255,.1);border-radius:999px;overflow:hidden;margin-bottom:10px;display:none}
+  .progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .btn{width:100%;padding:11px;border-radius:999px;border:0;cursor:pointer;background:rgba(255,255,255,.94);color:#0b0e1a;font-size:13px;font-weight:650;transition:.15s}
+  .btn:hover{background:#fff}
+
+  .view{display:none}.view.active{display:block}
+  .plain{padding:10px 2px;font-size:13.5px;color:var(--muted);line-height:1.7}
+  .plain b{color:var(--text);font-weight:600}
+  .list{display:flex;flex-direction:column}
+  .item{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:14px}
+  .item:hover{background:rgba(255,255,255,.05)}
+  .item b{font-size:13px;font-weight:600}
+  .item .go{margin-left:auto;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px;font-weight:600;cursor:pointer}
+  .swatches{display:flex;gap:7px;margin-left:auto}
+  .sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+  .sw.active{border-color:#fff}
+  .switch{width:40px;height:23px;border-radius:999px;background:rgba(255,255,255,.14);position:relative;cursor:pointer;margin-left:auto;flex:none}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:.2s}
+  .switch.on{background:var(--accent)} .switch.on::after{left:19px}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,14px);opacity:0;pointer-events:none;padding:10px 15px;border-radius:999px;font-size:12.5px;font-weight:600;z-index:50;transition:.25s;background:rgba(20,22,38,.88);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--line)}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  @media(max-width:760px){.layout{grid-template-columns:52px 1fr}.preview{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="blobs"><div class="blob b1"></div><div class="blob b2"></div></div>
+
+<div class="window">
+  <header><div class="mark">R</div><div><b>Rivals</b> <span>Skin Changer</span></div></header>
+
+  <div class="layout">
+    <nav class="rail" id="nav">
+      <button class="active" data-view="skins" title="Skins">◆</button>
+      <button data-view="presets" title="Presets">▣</button>
+      <button data-view="cosmetics" title="Cosmetics">✦</button>
+      <button data-view="visuals" title="Visuals">◐</button>
+      <button data-view="sounds" title="Sounds">♪</button>
+      <div class="spacer"></div>
+      <button data-view="settings" title="Settings">⚙</button>
+    </nav>
+
+    <main class="main">
+      <section class="view active" id="view-skins">
+        <label class="search">⌕ <input id="search" placeholder="Search skins..."></label>
+        <div class="chips" id="chips">
+          <button class="chip active" data-cat="All">All</button>
+          <button class="chip" data-cat="Primary">Primary</button>
+          <button class="chip" data-cat="Secondary">Secondary</button>
+          <button class="chip" data-cat="Melee">Melee</button>
+          <button class="chip" data-cat="Utility">Utility</button>
+        </div>
+        <div class="skin-list" id="skinList"></div>
+      </section>
+
+      <section class="view" id="view-presets">
+        <div class="list">
+          <div class="item"><b>🌙 Midnight</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
+          <div class="item"><b>🔥 Inferno</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
+          <div class="item"><b>❄️ Frost</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
+          <div class="item"><b>✨ Gold</b><button class="go" onclick="toast('Loaded (mock)')">Load</button></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-cosmetics"><p class="plain"><b>Cosmetics</b> — wraps, finishers and charms, same list.</p></section>
+      <section class="view" id="view-visuals"><p class="plain"><b>Visuals</b> — skybox and lighting.</p></section>
+      <section class="view" id="view-sounds"><p class="plain"><b>Sounds</b> — hit, headshot and kill sounds.</p></section>
+
+      <section class="view" id="view-settings">
+        <div class="list">
+          <div class="item"><b>Accent</b>
+            <div class="swatches" id="swatches">
+              <div class="sw active" data-c="#568cff" style="background:#568cff"></div>
+              <div class="sw" data-c="#a855f7" style="background:#a855f7"></div>
+              <div class="sw" data-c="#ef4444" style="background:#ef4444"></div>
+              <div class="sw" data-c="#22c55e" style="background:#22c55e"></div>
+              <div class="sw" data-c="#f59e0b" style="background:#f59e0b"></div>
+            </div>
+          </div>
+          <div class="item"><b>Auto-apply</b><div class="switch on" id="autoSwitch"></div></div>
+          <div class="item"><b>Toggle key</b><button class="go" onclick="toast('Right Shift')">Right Shift</button></div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="preview">
+      <div class="hero" id="hero"><span id="heroIcon">🔫</span></div>
+      <h2 id="heroName">Void Reaver</h2>
+      <p class="w" id="heroWeapon">AK-47 • Primary</p>
+      <div class="progress" id="progress"><i id="bar"></i></div>
+      <button class="btn" id="applyBtn">Save &amp; Apply</button>
+    </aside>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SKINS=[
+  {name:"Void Reaver",weapon:"AK-47",cat:"Primary",icon:"🔫",g:"linear-gradient(135deg,#312e81,#7c3aed)"},
+  {name:"Inferno",weapon:"M4",cat:"Primary",icon:"🔥",g:"linear-gradient(135deg,#7f1d1d,#f97316)"},
+  {name:"Glacier",weapon:"Burst Rifle",cat:"Primary",icon:"❄️",g:"linear-gradient(135deg,#0c4a6e,#38bdf8)"},
+  {name:"Golden Touch",weapon:"Desert Eagle",cat:"Secondary",icon:"✨",g:"linear-gradient(135deg,#713f12,#eab308)"},
+  {name:"Eclipse",weapon:"Revolver",cat:"Secondary",icon:"🌑",g:"linear-gradient(135deg,#111827,#6d28d9)"},
+  {name:"Neon Nights",weapon:"SMG",cat:"Secondary",icon:"💜",g:"linear-gradient(135deg,#581c87,#ec4899)"},
+  {name:"Shadow Fang",weapon:"Knife",cat:"Melee",icon:"🗡️",g:"linear-gradient(135deg,#1f2937,#111827)"},
+  {name:"Ember Blade",weapon:"Katana",cat:"Melee",icon:"⚔️",g:"linear-gradient(135deg,#7c2d12,#dc2626)"},
+  {name:"Frostbite",weapon:"Sniper",cat:"Primary",icon:"🧊",g:"linear-gradient(135deg,#155e75,#67e8f9)"},
+  {name:"Toxic",weapon:"Shotgun",cat:"Secondary",icon:"☣️",g:"linear-gradient(135deg,#14532d,#84cc16)"},
+  {name:"Royal",weapon:"Crossbow",cat:"Utility",icon:"👑",g:"linear-gradient(135deg,#4c1d95,#f59e0b)"},
+  {name:"Stealth",weapon:"RPG",cat:"Utility",icon:"🎯",g:"linear-gradient(135deg,#334155,#64748b)"}
+];
+let cat="All",query="",selected=SKINS[0];
+const listEl=document.getElementById('skinList');
+function render(){
+  const list=SKINS.filter(s=>(cat==="All"||s.cat===cat)&&s.name.toLowerCase().includes(query.toLowerCase()));
+  listEl.innerHTML=list.map(s=>`
+    <div class="skin-row ${s===selected?'selected':''}" data-name="${s.name}">
+      <div class="skin-thumb" style="background:${s.g}">${s.icon}</div>
+      <div class="skin-text"><b>${s.name}</b><small>${s.weapon} • ${s.cat}</small></div>
+      <span class="skin-check">✓</span>
+    </div>`).join('')||'<p class="empty">No matches.</p>';
+  listEl.querySelectorAll('.skin-row').forEach(r=>r.onclick=()=>{selected=SKINS.find(s=>s.name===r.dataset.name);render();updatePreview();});
+}
+function updatePreview(){
+  document.getElementById('hero').style.background=selected.g;
+  document.getElementById('heroIcon').textContent=selected.icon;
+  document.getElementById('heroName').textContent=selected.name;
+  document.getElementById('heroWeapon').textContent=selected.weapon+" • "+selected.cat;
+}
+document.getElementById('search').oninput=e=>{query=e.target.value;render();};
+document.getElementById('chips').onclick=e=>{if(e.target.dataset.cat){cat=e.target.dataset.cat;document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c===e.target));render();}};
+document.getElementById('nav').onclick=e=>{const b=e.target.closest('button');if(!b)return;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById('view-'+b.dataset.view).classList.add('active');};
+document.getElementById('swatches').onclick=e=>{const s=e.target.closest('.sw');if(!s)return;document.querySelectorAll('.sw').forEach(x=>x.classList.toggle('active',x===s));document.documentElement.style.setProperty('--accent',s.dataset.c);toast('Accent updated');};
+document.getElementById('autoSwitch').onclick=e=>e.target.classList.toggle('on');
+document.getElementById('applyBtn').onclick=()=>{const p=document.getElementById('progress'),bar=document.getElementById('bar');p.style.display='block';bar.style.width='0%';let n=0;const iv=setInterval(()=>{n+=20;bar.style.width=n+'%';if(n>=100){clearInterval(iv);setTimeout(()=>{p.style.display='none';toast('Applied: '+selected.name+' (mock)');},300);}},160);};
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000);}
+render();updatePreview();
+</script>
+</body>
+</html>
