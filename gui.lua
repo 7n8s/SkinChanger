@@ -222,7 +222,17 @@ local function configText()
 end
 -- Changed compared with what was last loaded or saved.
 local function markChanged()
-    state.dirty = configText() ~= state.cleanText
+    local text = configText()
+    if text ~= state.cleanText then
+        local ok = pcall(writefile, FILE, text)
+        if ok then
+            state.cleanText = text
+            state.dirty = false
+            state.status = "Saved."
+            return
+        end
+    end
+    state.dirty = text ~= state.cleanText
     state.status = state.dirty and "Changed - press Save & Apply." or "No changes."
 end
 -- The changer trades two models for each line, so a skin, finisher or charm
