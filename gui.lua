@@ -32,7 +32,7 @@ for i = 0, 25 do KEY_NAMES[0x41 + i] = string.char(65 + i) end
 for i = 0, 9 do KEY_NAMES[0x30 + i] = tostring(i); KEY_NAMES[0x60 + i] = "Num " .. i end
 for i = 1, 12 do KEY_NAMES[0x6F + i] = "F" .. i end
 local function keyName(vk) return KEY_NAMES[vk] or ("Key " .. tostring(vk)) end
-local DEFAULT_TOGGLE, DEFAULT_ACCENT = 0xA1, "568cff"
+local DEFAULT_TOGGLE, DEFAULT_ACCENT = 0xA1, "8dffc1"
 
 assert(Drawing and type(Drawing.new) == "function", "Matcha's Drawing library is required.")
 assert(type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function",
@@ -1251,12 +1251,12 @@ local V2, RGB = Vector2.new, Color3.fromRGB
 local FONT = (Drawing.Fonts and (Drawing.Fonts.System or Drawing.Fonts.UI)) or 1
 local FONT_BOLD = (Drawing.Fonts and Drawing.Fonts.SystemBold) or FONT
 local C = {
-    bg = RGB(9, 12, 19), bar = RGB(12, 17, 27), panel = RGB(14, 20, 31), card = RGB(20, 29, 43),
-    cardHover = RGB(27, 40, 58), line = RGB(34, 49, 68), text = RGB(235, 243, 250), dim = RGB(147, 166, 184),
-    faint = RGB(91, 111, 132), good = RGB(77, 220, 160), bad = RGB(255, 102, 117),
+    bg = RGB(20, 22, 23), bar = RGB(16, 20, 23), panel = RGB(18, 24, 27), card = RGB(24, 32, 36),
+    cardHover = RGB(30, 40, 45), line = RGB(42, 52, 56), text = RGB(237, 234, 228), dim = RGB(163, 166, 161),
+    faint = RGB(108, 112, 108), good = RGB(141, 255, 193), bad = RGB(255, 110, 118),
 }
 -- The accent and the shades made from it; picked in Settings.
-local ACCENTS = {"568cff", "8b5cf6", "ec4899", "ef4444", "f97316", "eab308", "22c55e", "14b8a6", "06b6d4", "e5e7eb"}
+local ACCENTS = {"8dffc1", "568cff", "8b5cf6", "ec4899", "ef4444", "f97316", "eab308", "22c55e", "14b8a6", "e5e7eb"}
 local function applyAccent(hex)
     local ok, c = pcall(Color3.fromHex, "#" .. tostring(hex))
     if not ok or not c then c = Color3.fromHex("#" .. DEFAULT_ACCENT) end
