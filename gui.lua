@@ -3778,34 +3778,39 @@ local function drawWindow(slide)
   win.y=math.floor(math.max(0,math.min(vp.Y-48,M.y-grabbed[2])))
   x,y=win.x,win.y; M.dragged=true
  end
- rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,16,0.35)
- rect(x,y,w,h,C.bg,1,14,0.92); border(x,y,w,h,C.line,2,14)
- line(x+14,y+1,x+w-14,y+1,RGB(255,255,255),2,1)
+ rect(x-3,y-3,w+6,h+6,RGB(4,7,10),0,18,0.42)
+ rect(x,y,w,h,C.bg,1,16,0.82); border(x,y,w,h,C.line,2,16)
+ line(x+16,y+1,x+w-16,y+1,RGB(255,255,255),2,1)
  if M.press and not slide and not state.resizing and (over(x,y,102,48) or over(x+104+#TABS*90,y,w-104-#TABS*90-44,48)) then grabbed={M.x-x,M.y-y} end
 
  -- Clean top bar with brand + tabs + status
- rect(x,y,w,48,C.panel,2,14); line(x+1,y+48,x+w-1,y+48,C.line,3,1)
- rect(x+14,y+13,22,22,C.accent,4,6); text("R",x+25,y+16,C.onAccent,13,6,true,true)
- text("Rivals",x+44,y+15,C.text,14,6,true)
+ rect(x,y,w,50,C.panel,2,16,0.85); line(x+1,y+50,x+w-1,y+50,C.line,3,1)
+ rect(x+14,y+14,22,22,C.accent,4,6); text("R",x+25,y+17,C.onAccent,13,6,true,true)
+ text("Rivals",x+44,y+16,C.text,14,6,true)
  for i,name in ipairs(TABS) do
   local tx=x+104+(i-1)*90
   local selected=state.tab==name
-  if button(tx,y+10,82,28,name,selected) then state.tab=name; focus=nil end
+  if button(tx,y+11,82,28,name,selected) then state.tab=name; focus=nil end
  end
  local busy=shared.busy or upstreamBusy()
- circle(x+w-96,y+24,3,busy and C.accent or C.good,4,true)
- text(busy and "Applying" or "Ready",x+w-86,y+17,C.dim,11,6)
- if button(x+w-38,y+10,28,28,"×",false) then state.open=false end
+ rect(x+w-116,y+13,68,24,C.card,3,12); border(x+w-116,y+13,68,24,C.line,4,12)
+ circle(x+w-104,y+25,3,busy and C.accent or C.good,5,true)
+ text(busy and "Busy" or "Ready",x+w-95,y+18,C.dim,11,6)
+ if button(x+w-38,y+11,28,28,"×",false) then state.open=false end
 
  local cx,cw=x+16,w-32
  local meta=META[state.tab] or {"",state.tab:upper(),""}
- text(meta[2],cx+2,y+76,C.text,18,6,true)
- text(meta[3],cx+3,y+101,C.dim,10,6)
- local pageY,pageH=y+126,h-(y+126-y)-58
- rect(cx,pageY,cw,pageH,C.panel,3,12); border(cx,pageY,cw,pageH,C.line,4,12)
+ text(state.tab,cx+2,y+66,C.text,19,6,true)
+ text(meta[3],cx+3,y+90,C.dim,10,6)
+ rect(cx+2,y+108,36,2,C.accent,3,1)
+ local pageY,pageH=y+118,h-164
+ rect(cx,pageY,cw,pageH,C.panel,3,14,0.76); border(cx,pageY,cw,pageH,C.line,4,14)
+ line(cx+14,pageY+1,cx+cw-14,pageY+1,RGB(255,255,255),4,1)
  DRAW[state.tab](cx+1,pageY+1,cw-2,pageH-2)
 
- local barY=y+h-48
+ local barY=y+h-38
+ text("Auto-save & auto-apply on",cx+2,barY+10,C.faint,10,6)
+ text("Toggle: "..keyName(state.toggleKey),x+w-130,barY+10,C.faint,10,6)
  line(x+14,barY-2,x+w-14,barY-2,C.line,4,1)
  local prog=busy and type(_G.__RSC_PROGRESS)=="table" and _G.__RSC_PROGRESS
  if prog and (prog[1] or 0)<100 then
