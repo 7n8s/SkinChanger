@@ -3790,10 +3790,7 @@ local function drawWindow(slide)
  for i,name in ipairs(TABS) do
   local tx=x+86+(i-1)*92
   local selected=state.tab==name
-  if selected then rect(tx,y+10,84,28,C.card,3,8); rect(tx+14,y+36,56,2,C.accent,4,1)
-  elseif over(tx,y+10,84,28) then rect(tx,y+10,84,28,C.cardHover,3,8) end
-  text(name,tx+42,y+17,selected and C.text or C.dim,12,6,selected,true)
-  if clicked(tx,y+10,84,28) then state.tab=name; focus=nil end
+  if button(tx,y+10,84,28,name,selected) then state.tab=name; focus=nil end
  end
  local busy=shared.busy or upstreamBusy()
  circle(x+w-96,y+24,3,busy and C.accent or C.good,4,true)
