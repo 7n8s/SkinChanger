@@ -228,7 +228,8 @@ local function markChanged()
         if ok then
             state.cleanText = text
             state.dirty = false
-            state.status = "Saved."
+            state.status = "Saved & applying..."
+            if not (shared.busy or upstreamBusy()) then job("Applying...", apply) end
             return
         end
     end
