@@ -3781,15 +3781,16 @@ local function drawWindow(slide)
  rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,16,0.35)
  rect(x,y,w,h,C.bg,1,14,0.92); border(x,y,w,h,C.line,2,14)
  line(x+14,y+1,x+w-14,y+1,RGB(255,255,255),2,1)
- if M.press and not slide and not state.resizing and (over(x,y,84,48) or over(x+86+#TABS*92,y,w-86-#TABS*92-44,48)) then grabbed={M.x-x,M.y-y} end
+ if M.press and not slide and not state.resizing and (over(x,y,102,48) or over(x+104+#TABS*90,y,w-104-#TABS*90-44,48)) then grabbed={M.x-x,M.y-y} end
 
  -- Clean top bar with brand + tabs + status
  rect(x,y,w,48,C.panel,2,14); line(x+1,y+48,x+w-1,y+48,C.line,3,1)
- text("Rivals",x+18,y+15,C.text,14,6,true)
+ rect(x+14,y+13,22,22,C.accent,4,6); text("R",x+25,y+16,C.onAccent,13,6,true,true)
+ text("Rivals",x+44,y+15,C.text,14,6,true)
  for i,name in ipairs(TABS) do
-  local tx=x+86+(i-1)*92
+  local tx=x+104+(i-1)*90
   local selected=state.tab==name
-  if button(tx,y+10,84,28,name,selected) then state.tab=name; focus=nil end
+  if button(tx,y+10,82,28,name,selected) then state.tab=name; focus=nil end
  end
  local busy=shared.busy or upstreamBusy()
  circle(x+w-96,y+24,3,busy and C.accent or C.good,4,true)
@@ -3801,7 +3802,7 @@ local function drawWindow(slide)
  text(meta[2],cx+2,y+76,C.text,18,6,true)
  text(meta[3],cx+3,y+101,C.dim,10,6)
  local pageY,pageH=y+126,h-(y+126-y)-58
- rect(cx,pageY,cw,pageH,C.panel,3,10)
+ rect(cx,pageY,cw,pageH,C.panel,3,12); border(cx,pageY,cw,pageH,C.line,4,12)
  DRAW[state.tab](cx+1,pageY+1,cw-2,pageH-2)
 
  local barY=y+h-48
