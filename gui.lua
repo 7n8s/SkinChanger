@@ -618,7 +618,7 @@ local function loadSettings()
         state.accent = body:match("accent%s*=%s*(%x%x%x%x%x%x)") or DEFAULT_ACCENT
         state.ownedOnly = body:match("ownedonly%s*=%s*(%d)") ~= "0"
         state.showOnAutoexec = body:match("showonautoexec%s*=%s*(%d)") == "1"
-        state.noticeSeen = body:match("noticeseen%s*=%s*(%d)") == "1"
+        state.noticeSeen = true
         state.safeMode = body:match("safemode%s*=%s*(%d)") == "1"
         state.fpsMode = body:match("fpsmode%s*=%s*(%d)") == "1"
         local panic = tonumber(body:match("panickey%s*=%s*(%d+)"))
@@ -3846,7 +3846,7 @@ local function drawWindow(slide)
  end
  local hint=keyName(state.toggleKey).." TO HIDE"
  text(hint,x+w-202-textWidth(hint,9),barY+15,C.faint,9,6,true)
- if button(x+w-180,barY+5,166,32,state.dirty and "SAVE  +  APPLY" or "APPLY CONFIG",true,busy) then job("Applying...",apply) end
+ if button(x+w-160,barY+5,146,32,"Apply",true,busy) then job("Applying...",apply) end
  for i=0,2 do line(x+w-4-i*5,y+h-3,x+w-3,y+h-4-i*5,state.resizing and C.accent or C.faint,7,1) end
  circle(M.x,M.y,2,C.accent,10,true)
  return over(x,y,w,h)
