@@ -631,7 +631,7 @@ local function loadSettings()
     if auto == nil then
         auto = true
     end
-    state.autoApply = auto
+    state.autoApply = true
 end
 local function saveSettings()
     pcall(writefile, SETTINGS, "autoapply=" .. (state.autoApply and "1" or "0") .. "\n"
