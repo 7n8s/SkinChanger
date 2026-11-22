@@ -3776,20 +3776,26 @@ local function drawWindow(slide)
   win.y=math.floor(math.max(0,math.min(vp.Y-48,M.y-grabbed[2])))
   x,y=win.x,win.y; M.dragged=true
  end
- rect(x,y,w,h,C.bg,1,10,0.92); border(x,y,w,h,C.line,2,10)
- if M.press and not slide and not state.resizing and over(x,y,w-44,44) then grabbed={M.x-x,M.y-y} end
+ rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,16,0.35)
+ rect(x,y,w,h,C.bg,1,14,0.92); border(x,y,w,h,C.line,2,14)
+ line(x+14,y+1,x+w-14,y+1,RGB(255,255,255),2,1)
+ if M.press and not slide and not state.resizing and over(x,y,w-44,48) then grabbed={M.x-x,M.y-y} end
 
- -- Simple top tab bar
- rect(x,y,w,44,C.panel,2,10); line(x+1,y+44,x+w-1,y+44,C.line,3,1)
+ -- Clean top bar with brand + tabs + status
+ rect(x,y,w,48,C.panel,2,14); line(x+1,y+48,x+w-1,y+48,C.line,3,1)
+ text("Rivals",x+18,y+15,C.text,14,6,true)
  for i,name in ipairs(TABS) do
-  local tx=x+14+(i-1)*96
+  local tx=x+86+(i-1)*92
   local selected=state.tab==name
-  if selected then rect(tx,y+8,88,28,C.card,3,6); rect(tx+12,y+34,64,2,C.accent,4,1)
-  elseif over(tx,y+8,88,28) then rect(tx,y+8,88,28,C.cardHover,3,6) end
-  text(name,tx+44,y+15,selected and C.text or C.dim,12,6,selected,true)
-  if clicked(tx,y+8,88,28) then state.tab=name; focus=nil end
+  if selected then rect(tx,y+10,84,28,C.card,3,8); rect(tx+14,y+36,56,2,C.accent,4,1)
+  elseif over(tx,y+10,84,28) then rect(tx,y+10,84,28,C.cardHover,3,8) end
+  text(name,tx+42,y+17,selected and C.text or C.dim,12,6,selected,true)
+  if clicked(tx,y+10,84,28) then state.tab=name; focus=nil end
  end
- if button(x+w-38,y+8,28,28,"×",false) then state.open=false end
+ local busy=shared.busy or upstreamBusy()
+ circle(x+w-96,y+24,3,busy and C.accent or C.good,4,true)
+ text(busy and "Applying" or "Ready",x+w-86,y+17,C.dim,11,6)
+ if button(x+w-38,y+10,28,28,"×",false) then state.open=false end
 
  local cx,cw=x+16,w-32
  local meta=META[state.tab] or {"",state.tab:upper(),""}
