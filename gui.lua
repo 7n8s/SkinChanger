@@ -3782,7 +3782,7 @@ local function drawWindow(slide)
  rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,16,0.35)
  rect(x,y,w,h,C.bg,1,14,0.92); border(x,y,w,h,C.line,2,14)
  line(x+14,y+1,x+w-14,y+1,RGB(255,255,255),2,1)
- if M.press and not slide and not state.resizing and over(x,y,w-44,48) then grabbed={M.x-x,M.y-y} end
+ if M.press and not slide and not state.resizing and (over(x,y,84,48) or over(x+86+#TABS*92,y,w-86-#TABS*92-44,48)) then grabbed={M.x-x,M.y-y} end
 
  -- Clean top bar with brand + tabs + status
  rect(x,y,w,48,C.panel,2,14); line(x+1,y+48,x+w-1,y+48,C.line,3,1)
