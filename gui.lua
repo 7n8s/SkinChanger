@@ -3772,7 +3772,6 @@ local function drawWindow(slide)
    M.dragged=true
   else state.resizing=nil; saveSettings() end
  end
- if M.press and not slide and not state.resizing and over(x,y,w-54,48) then grabbed={M.x-x,M.y-y} end
  if not M.down then grabbed=nil end
  if grabbed then
   win.x=math.floor(math.max(0,math.min(vp.X-60,M.x-grabbed[1])))
