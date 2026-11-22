@@ -3776,57 +3776,22 @@ local function drawWindow(slide)
   win.y=math.floor(math.max(0,math.min(vp.Y-48,M.y-grabbed[2])))
   x,y=win.x,win.y; M.dragged=true
  end
- rect(x-2,y-2,w+4,h+4,RGB(4,7,10),0,20,0.40)
- rect(x,y,w,h,C.bg,1,18,0.62); border(x,y,w,h,C.line,2,18)
- line(x+18,y+1,x+w-18,y+1,RGB(255,255,255),2,1)
+ rect(x,y,w,h,C.bg,1,10,0.92); border(x,y,w,h,C.line,2,10)
+ if M.press and not slide and not state.resizing and over(x,y,w-44,44) then grabbed={M.x-x,M.y-y} end
 
- -- UnnamedEnhancements-style full-height glass sidebar
- local sx,sy,sw,sh=x+12,y+12,196,h-24
- rect(sx,sy,sw,sh,C.panel,2,16,0.72); border(sx,sy,sw,sh,C.line,3,16)
- line(sx+14,sy+1,sx+sw-14,sy+1,RGB(255,255,255),3,1)
- rect(sx+14,sy+14,30,30,C.accent,4,9); text("R",sx+29,sy+19,C.onAccent,17,6,true,true)
- text("Rivals.",sx+54,sy+12,C.text,16,6,true)
- text("COSMETIC CONTROL",sx+54,sy+32,C.accent,8,6,true)
-
- if M.press and not slide and not state.resizing and over(x+sw+24,y,w-sw-78,54) then grabbed={M.x-x,M.y-y} end
-
- -- Right-side glass topbar with active view title
- local cx,cw=sx+sw+14,w-sw-38
- local meta=META[state.tab] or {"",state.tab:upper(),""}
- rect(cx,sy,cw,50,C.panel,2,16,0.72); border(cx,sy,cw,50,C.line,3,16)
- line(cx+14,sy+1,cx+cw-14,sy+1,RGB(255,255,255),3,1)
- text(state.tab,cx+18,sy+8,C.text,16,6,true)
- text(meta[3],cx+18,sy+29,C.dim,10,6)
- local busy=shared.busy or upstreamBusy()
- local status=busy and "Processing" or (state.dirty and "Unsaved" or "System Ready")
- local statusColor=busy and C.accent or (state.dirty and RGB(255,190,90) or C.good)
- rect(cx+cw-168,sy+21,8,8,statusColor,5,4); text(status,cx+cw-154,sy+18,statusColor,11,6,true)
- if button(cx+cw-40,sy+11,28,28,"×",false) then state.open=false end
-
- if not state.noticeSeen then drawNotice(cx,sy+62,cw,h-86); circle(M.x,M.y,2,C.accent,10,true); return over(x,y,w,h) end
-
- -- Main content glass card
- rect(cx,sy+60,cw,sh-118,C.panel,2,16,0.68); border(cx,sy+60,cw,sh-118,C.line,3,16)
- line(cx+14,sy+61,cx+cw-14,sy+61,RGB(255,255,255),3,1)
-
- text("BROWSE",sx+16,sy+62,C.faint,9,6,true)
+ -- Simple top tab bar
+ rect(x,y,w,44,C.panel,2,10); line(x+1,y+44,x+w-1,y+44,C.line,3,1)
  for i,name in ipairs(TABS) do
-  local ry=sy+82+(i-1)*42+(i>2 and 18 or 0)
-  if i==3 then text("CUSTOMISE",sx+16,ry-18,C.faint,9,6,true) end
+  local tx=x+14+(i-1)*96
   local selected=state.tab==name
-  if selected then
-   rect(sx+8,ry,sw-16,36,C.card,4,10,0.85); border(sx+8,ry,sw-16,36,C.line,5,10)
-   rect(sx+8,ry+8,3,20,C.accent,6,2)
-  elseif over(sx+8,ry,sw-16,36) then rect(sx+8,ry,sw-16,36,C.cardHover,4,10,0.65) end
-  text(name,sx+22,ry+9,selected and C.text or C.dim,13,7,selected)
-  if clicked(sx+8,ry,sw-16,36) then state.tab=name; focus=nil end
+  if selected then rect(tx,y+8,88,28,C.card,3,6); rect(tx+12,y+34,64,2,C.accent,4,1)
+  elseif over(tx,y+8,88,28) then rect(tx,y+8,88,28,C.cardHover,3,6) end
+  text(name,tx+44,y+15,selected and C.text or C.dim,12,6,selected,true)
+  if clicked(tx,y+8,88,28) then state.tab=name; focus=nil end
  end
- local fy=sy+sh-64
- line(sx+12,fy-9,sx+sw-12,fy-9,C.line,4,1)
- circle(sx+20,fy+9,3,C.good,6,true)
- text("ACTIVE SESSION",sx+31,fy+1,C.dim,9,6,true)
- text(keyName(state.toggleKey).."  /  TOGGLE",sx+15,fy+23,C.faint,8,6)
+ if button(x+w-38,y+8,28,28,"×",false) then state.open=false end
 
+ local cx,cw=x+16,w-32
  local meta=META[state.tab] or {"",state.tab:upper(),""}
  text(meta[2],cx+2,y+76,C.text,18,6,true)
  text(meta[3],cx+3,y+101,C.dim,10,6)
