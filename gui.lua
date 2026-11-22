@@ -1065,7 +1065,10 @@ local function changerSource()
             if okRead and type(body) == "string" and #body > 0 then return body, p end
         end
     end
-    return fetch(SCRIPT_URL), "github"
+    if not _G.__RSC_MAIN_SRC then
+        _G.__RSC_MAIN_SRC = fetch(SCRIPT_URL)
+    end
+    return _G.__RSC_MAIN_SRC, "github"
 end
 -- panic: runs the changer on an empty config instead of the saved one, so
 -- everything goes back to the game's own look; the config file is untouched.
